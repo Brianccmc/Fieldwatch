@@ -1,0 +1,20 @@
+{
+  "v": 1,
+  "property": {
+    "name": "Willow Springs tract",
+    "acres": 119,
+    "crs": "EPSG:4326",
+    "notes": "Replace bbox and station lat/lon after the Phase 0 walk. Do not publish a filled copy."
+  },
+  "map": {
+    "hillshade": "USGS 3DEP hillshade",
+    "dem": "USGS 3DEP 1m or 10m",
+    "parcel_geojson": "local only: farm/private/parcel.geojson"
+  },
+  "stations": [
+    {"id": "house", "kind": "mains", "platform": "android-fieldwatch", "role": "hub observer + TAK", "lat": null, "lon": null, "antenna_m": 4, "radios": ["wifi_ap", "ble_adv", "remote_id"]},
+    {"id": "gate-n", "kind": "solar", "platform": "esp32s3-sx1262", "role": "chokepoint", "lat": null, "lon": null, "antenna_m": 3, "radios": ["wifi_ap", "wifi_mgmt", "ble_adv"]},
+    {"id": "ridge-2", "kind": "solar", "platform": "esp32s3-sx1262", "role": "line of sight to road", "lat": null, "lon": null, "antenna_m": 6, "radios": ["wifi_ap", "ble_adv", "remote_id"]},
+    {"id": "pond", "kind": "solar", "platform": "esp32s3-sx1262", "role": "interior", "lat": null, "lon": null, "antenna_m": 3, "radios": ["wifi_ap", "ble_adv"]}
+  ]
+}
