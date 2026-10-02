@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="theme-color" content="#05080f"/>
+<title>FIELDWATCH · FARM HUD</title>
+<style>
+:root{
+  --bg:#05080f; --panel:rgba(10,18,32,.72); --glass:rgba(20,40,70,.35);
+  --line:rgba(80,200,255,.28); --line2:rgba(255,180,60,.35);
+  --cyan:#4de1ff; --amber:#ffb84d; --red:#ff4d6a; --green:#3dff9a; --muted:#7f93ad;
+  --font: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:radial-gradient(1200px 800px at 20% -10%,#0b1a33 0%,var(--bg) 55%);
+  color:#d7e6ff;font-family:var(--font);min-height:100%;}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.08) 3px);
+  opacity:.35;z-index:0}
+.wrap{position:relative;z-index:1;max-width:1100px;margin:0 auto;padding:12px 12px 32px}
+.top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;
+  border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(10px);
+  border-radius:14px;padding:12px 14px;box-shadow:0 0 24px rgba(77,225,255,.08) inset}
+.brand{display:flex;flex-direction:column;gap:2px}
+.brand b{letter-spacing:.18em;font-size:13px;color:var(--cyan);text-shadow:0 0 12px rgba(77,225,255,.45)}
+.brand span{font-size:11px;color:var(--muted)}
+.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pill{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;
+  background:var(--glass);display:inline-flex;gap:6px;align-items:center}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);box-shadow:0 0 8px currentColor}
+.dot.on{background:var(--green);color:var(--green)}
+.dot.warn{background:var(--amber);color:var(--amber)}
+.dot.off{background:var(--red);color:var(--red)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:10px}
+@media(max-width:720px){.grid{grid-template-columns:1fr}}
+.card{border:1px solid var(--line);background:linear-gradient(180deg,rgba(18,32,54,.75),rgba(8,14,26,.8));
+  border-radius:14px;padding:12px;min-height:120px;backdrop-filter:blur(8px)}
+.card h2{margin:0 0 8px;font-size:11px;letter-spacing:.16em;color:var(--cyan);font-weight:600}
+.kv{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:12px}
+.kv span{color:var(--muted)} .kv b{color:#e8f3ff;font-weight:600}
+.table{width:100%;border-collapse:collapse;font-size:11px}
+.table th,.table td{padding:6px 4px;border-bottom:1px solid rgba(77,225,255,.12);text-align:left;vertical-align:top}
+.table th{color:var(--muted);font-weight:500;letter-spacing:.08em}
+.badge{display:inline-block;border-radius:4px;padding:1px 6px;border:1px solid var(--line);font-size:10px;margin-right:3px}
+.badge.rid{border-color:rgba(255,184,77,.5);color:var(--amber)}
+.badge.trk{border-color:rgba(255,77,106,.5);color:var(--red)}
+.badge.ok{border-color:rgba(61,255,154,.4);color:var(--green)}
+.badge.alert{background:rgba(255,77,106,.15);border-color:var(--red);color:#ffb3c0}
+.rssi{color:var(--cyan)}
+.footer{margin-top:12px;font-size:10px;color:var(--muted);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.scan{height:2px;background:linear-gradient(90deg,transparent,var(--cyan),transparent);margin:8px 0 0;opacity:.5;
+  animation:sweep 2.8s linear infinite}
+@keyframes sweep{0%{transform:translateX(-40%);opacity:.2}50%{opacity:.7}100%{transform:translateX(40%);opacity:.2}}
+.live{max-height:280px;overflow:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <b>FIELDWATCH · FARM HUD</b>
+      <span id="subtitle">LAN tactical glass · awaiting link</span>
+    </div>
+    <div class="pills" id="pills"></div>
+  </div>
+  <div class="scan"></div>
+  <div class="grid">
+    <div class="card">
+      <h2>HUB / LINKS</h2>
+      <div class="kv" id="hubkv"></div>
+    </div>
+    <div class="card">
+      <h2>STATIONS</h2>
+      <div id="stations" class="live"></div>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <h2>LIVE HEARS</h2>
+      <div class="live">
+        <table class="table">
+          <thead><tr><th>TIME</th><th>STN</th><th>RADIO</th><th>NAME/MAC</th><th>RSSI</th><th>FLAGS</th></tr></thead>
+          <tbody id="hears"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card" style="grid-column:1/-1">
+      <h2>ALERTS</h2>
+      <div class="live">
+        <table class="table">
+          <thead><tr><th>TIME</th><th>STN</th><th>REASON</th><th>TARGET</th><th>RSSI</th></tr></thead>
+          <tbody id="alerts"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <span>REST + SSE · bind 0.0.0.0 · demo default ON until nodes arrive</span>
+    <span id="clock"></span>
+  </div>
+</div>
+<script>
+const $ = (id)=>document.getElementById(id);
+function pill(label, on, warn){
+  const d = on ? 'on' : (warn ? 'warn' : 'off');
+  return `<span class="pill"><i class="dot ${d}"></i>${label}</span>`;
+}
+function ago(ts){
+  if(!ts) return '—';
+  const t = (typeof ts==='number') ? ts*1000 : Date.parse(ts);
+  if(!t) return '—';
+  const s=Math.max(0,Math.floor((Date.now()-t)/1000));
+  if(s<60) return s+'s';
+  if(s<3600) return Math.floor(s/60)+'m';
+  return Math.floor(s/3600)+'h';
+}
+function flags(h){
+  let out='';
+  if(h.alert) out+=`<span class="badge alert">${h.alert_reason||'ALERT'}</span>`;
+  if(h.rid_status) out+=`<span class="badge rid">RID ${h.rid_status}</span>`;
+  if(h.dult_mode==='separated'||h.find_hub_mode==='separated') out+=`<span class="badge trk">TRACKER</span>`;
+  if(h.dult_mode==='near_owner'||h.find_hub_mode==='nearby') out+=`<span class="badge ok">NEAR</span>`;
+  (h.signature_names||[]).slice(0,2).forEach(n=> out+=`<span class="badge">${n}</span>`);
+  return out||'<span class="badge">—</span>';
+}
+function renderStatus(s){
+  $('pills').innerHTML = [
+    pill('HUB', !!s.hub_ok),
+    pill('MQTT', !!(s.mqtt&&s.mqtt.connected), !s.mqtt?.connected),
+    pill('XIAO', !!(s.xiao&&s.xiao.connected), !s.xiao?.connected),
+    pill('DEMO', !!(s.demo&&s.demo.enabled), false),
+  ].join('');
+  $('subtitle').textContent = `uptime ${s.uptime_sec||0}s · ingest ${s.ingest_count||0} · alerts ${s.alert_count||0}`;
+  const x=s.xiao||{}, m=s.mqtt||{};
+  $('hubkv').innerHTML = [
+    ['Heartbeat', ago(s.last_heartbeat_at)],
+    ['MQTT msgs', m.msg_count??0],
+    ['XIAO port', x.port||'—'],
+    ['XIAO JSON', x.json_count??0],
+    ['XIAO junk skip', x.junk_skipped??0],
+    ['Demo counts', (s.demo&&s.demo.count)||0],
+  ].map(([k,v])=>`<span>${k}</span><b>${v}</b>`).join('');
+}
+function renderHears(rows){
+  $('hears').innerHTML = (rows||[]).slice(0,40).map(h=>`<tr>
+    <td>${(h.heard_at||'').replace('T',' ').replace('Z','')}</td>
+    <td>${h.station_id||''}</td>
+    <td>${h.radio||''}</td>
+    <td>${h.name||h.mac||'—'}</td>
+    <td class="rssi">${h.rssi??''}</td>
+    <td>${flags(h)}</td>
+  </tr>`).join('') || '<tr><td colspan="6">no hears yet</td></tr>';
+}
+function renderAlerts(rows){
+  $('alerts').innerHTML = (rows||[]).slice(0,20).map(h=>`<tr>
+    <td>${(h.heard_at||'').replace('T',' ').replace('Z','')}</td>
+    <td>${h.station_id||''}</td>
+    <td>${h.alert_reason||''}</td>
+    <td>${h.name||h.mac||h.uas_id||'—'}</td>
+    <td class="rssi">${h.rssi??''}</td>
+  </tr>`).join('') || '<tr><td colspan="5">quiet</td></tr>';
+}
+function renderStations(doc){
+  const list=doc.stations||[];
+  $('stations').innerHTML = list.map(s=>`<div class="kv" style="margin-bottom:6px">
+    <span>${s.id} <span class="badge ${s.online?'ok':'off'}">${s.online?'ONLINE':'STALE'}</span></span>
+    <b>${s.role||s.kind||''} · ${ago(s.last_heard_at)}</b>
+  </div>`).join('') || '<span style="color:var(--muted)">no stations</span>';
+}
+async function refresh(){
+  try{
+    const [st, hears, alerts, stations] = await Promise.all([
+      fetch('/api/status').then(r=>r.json()),
+      fetch('/api/hears?limit=40').then(r=>r.json()),
+      fetch('/api/alerts?limit=20').then(r=>r.json()),
+      fetch('/api/stations').then(r=>r.json()),
+    ]);
+    renderStatus(st); renderHears(hears); renderAlerts(alerts); renderStations(stations);
+  }catch(e){ console.warn(e); }
+  $('clock').textContent = new Date().toLocaleString();
+}
+refresh(); setInterval(refresh, 5000);
+try{
+  const es = new EventSource('/api/events');
+  es.onmessage = (ev)=>{ try{
+    const msg=JSON.parse(ev.data);
+    if(msg.status) renderStatus(msg.status);
+    if(msg.type==='obs') refresh();
+  }catch(_){}};
+}catch(_){}
+</script>
+</body>
+</html>

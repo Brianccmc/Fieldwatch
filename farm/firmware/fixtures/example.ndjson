@@ -1,0 +1,3 @@
+{"v":1,"station_id":"xiao-lab","heard_at":"2026-10-02T16:00:00Z","radio":"heartbeat","rssi":0,"station_vbat_mv":4010,"name":"fixture-hb"}
+{"v":1,"station_id":"xiao-lab","heard_at":"2026-10-02T16:00:01Z","radio":"wifi_ap","rssi":-62,"mac":"02:11:22:33:44:55","mac_kind":"public","channel":6,"name":"FixtureCam","mode":"ap_scan"}
+{"v":1,"station_id":"xiao-lab","heard_at":"2026-10-02T16:00:02Z","radio":"ble_adv","rssi":-71,"mac":"F1:E2:D3:C4:B5:A6","mac_kind":"random","name":"FixtureTag","mode":"ble_scan","service_uuid":"FCB2","service_data_hex":"0100AA"}

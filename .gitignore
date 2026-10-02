@@ -27,3 +27,13 @@ research/
 scripts/.lookup-cache/
 
 # Machine JDK path belongs in JAVA_HOME, not the tree
+
+# Farm hub runtime / secrets (never commit)
+farm/hub/allowlist.json
+farm/private/
+*.sqlite
+*.sqlite-journal
+farm/hub/.venv/
+**/__pycache__/
+.env
+farm/data/

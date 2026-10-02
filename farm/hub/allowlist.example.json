@@ -1,0 +1,8 @@
+{
+  "v": 1,
+  "notes": "Copy to allowlist.json on the Pi (off-git). Family/device MACs and SSIDs stay local.",
+  "radios": [
+    {"mac": "00:00:00:00:00:00", "label": "example-phone — replace"},
+    {"ssid": "ExampleHomeAP", "label": "example SSID — replace"}
+  ]
+}
