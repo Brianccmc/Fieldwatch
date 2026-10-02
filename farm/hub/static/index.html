@@ -88,9 +88,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
     <div class="card map-card">
       <div class="map-controls">
         <span class="pill btn" id="btnBleNoise" title="Expand/hide low-signal Transient BLE noise">BLE noise: OFF</span>
+        <span class="pill btn" id="btnVectors" title="Show/hide hub→contact signal vector spokes">Vectors: OFF</span>
       </div>
       <canvas id="map" width="900" height="560" aria-label="Parcel topographic map"></canvas>
-      <div class="map-legend" id="maplegend">OFFLINE TOPO · green phosphor · BLE noise clustered</div>
+      <div class="map-legend" id="maplegend">OFFLINE TOPO · green phosphor · vectors OFF · sparse labels</div>
     </div>
     <div class="side">
       <div class="card">
@@ -128,7 +129,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
     </div>
   </div>
   <div class="footer">
-    <span>REST + SSE · static GeoJSON topo · BLE noise clustered by default · demo default ON</span>
+    <span>REST + SSE · static GeoJSON topo · vectors OFF · sparse labels · BLE clustered · demo ON</span>
     <span id="clock"></span>
   </div>
 </div>
@@ -136,9 +137,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
 const $ = (id)=>document.getElementById(id);
 let mapDoc=null, mapMeta=null, stations=[], contacts=[], hub={lat:37.0457191,lon:-91.9502374};
 let showBleNoise=false;
+let showVectors=false; // hub→contact spokes OFF by default (declutter)
 let expandedClusterId=null;
 let clusterHits=[]; // {id,x,y,r,members}
 let lastProj=null, lastHubP=null;
+let placedLabels=[]; // [{x,y,w,h}] for de-overlap this frame
 
 /** High-value / named device types always labeled on the map. */
 const ALWAYS_SHOW_TYPES = new Set([
@@ -252,32 +255,80 @@ function clusterNoise(noise, proj){
   });
 }
 
+/** Short labels only for always-show high-value types or high/critical risk. */
+function shouldLabel(c){
+  const lvl=(c.risk_level||'').toLowerCase();
+  if(HIGH_RISK.has(lvl)) return true;
+  const dt=(c.device_type||'').toLowerCase();
+  return ALWAYS_SHOW_TYPES.has(dt);
+}
+function labelPriority(c){
+  const lvl=(c.risk_level||'').toLowerCase();
+  if(lvl==='critical') return 4;
+  if(lvl==='high'||lvl==='elevated') return 3;
+  if(ALWAYS_SHOW_TYPES.has((c.device_type||'').toLowerCase())) return 2;
+  return 1;
+}
+function shortLabel(c){
+  const raw=String(c.device_label||c.name||c.mac||'contact').trim();
+  // Prefer a compact token; drop long parentheticals / MAC tails when possible
+  const cut=raw.split(/[|(]/)[0].trim() || raw;
+  return cut.slice(0,14);
+}
+function labelOverlaps(box){
+  for(const p of placedLabels){
+    if(!(box.x+box.w < p.x || p.x+p.w < box.x || box.y+box.h < p.y || p.y+p.h < box.y)) return true;
+  }
+  return false;
+}
+function tryPlaceLabel(ctx, text, px, py, priority){
+  ctx.font='10px ui-monospace,monospace';
+  const w=Math.ceil(ctx.measureText(text).width)+2;
+  const h=11;
+  // Prefer top-right; try a few offsets to avoid overlap; skip if still colliding (lower priority loses)
+  const offsets=[[8,-6],[8,10],[-w-4,-6],[-w-4,10],[8,-16],[8,18]];
+  for(const [ox,oy] of offsets){
+    const box={x:px+ox, y:py+oy-h+2, w, h, priority};
+    if(!labelOverlaps(box)){
+      placedLabels.push(box);
+      ctx.fillStyle='#d8ffe8';
+      ctx.fillText(text, px+ox, py+oy);
+      return true;
+    }
+  }
+  return false; // crowded — omit label; dot remains
+}
+
 function drawContact(ctx, hubP, c, proj, labeled){
-  if(c.lat==null||c.lon==null) return;
+  if(c.lat==null||c.lon==null) return null;
   const p=proj(c.lon,c.lat);
   const str=Math.max(0.15, Math.min(1, c.signal_strength??0.4));
-  const lvl=c.risk_level||'watch';
-  const col = lvl==='critical'?`rgba(255,77,106,${0.35+str*0.5})`
+  const lvl=(c.risk_level||'watch').toLowerCase();
+  const fill = lvl==='critical'?'#ff4d6a':((lvl==='elevated'||lvl==='high')?'#ffb84d':(lvl==='watch'?'#9ad8ff':'#3dff9a'));
+  const spoke = lvl==='critical'?`rgba(255,77,106,${0.35+str*0.5})`
     : (lvl==='elevated'||lvl==='high')?`rgba(255,184,77,${0.35+str*0.5})`
     : `rgba(61,255,154,${0.25+str*0.45})`;
-  ctx.beginPath(); ctx.moveTo(hubP.x,hubP.y); ctx.lineTo(p.x,p.y);
-  ctx.strokeStyle=col; ctx.lineWidth=1+str*2; ctx.stroke();
-  const ang=Math.atan2(p.y-hubP.y,p.x-hubP.x);
-  ctx.beginPath();
-  ctx.moveTo(p.x,p.y);
-  ctx.lineTo(p.x-8*Math.cos(ang-0.4), p.y-8*Math.sin(ang-0.4));
-  ctx.lineTo(p.x-8*Math.cos(ang+0.4), p.y-8*Math.sin(ang+0.4));
-  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
-  ctx.beginPath(); ctx.arc(p.x,p.y,5,0,Math.PI*2);
-  ctx.fillStyle=lvl==='critical'?'#ff4d6a':((lvl==='elevated'||lvl==='high')?'#ffb84d':'#3dff9a');
-  ctx.fill();
-  if(labeled){
-    const label=(c.device_label||c.name||c.mac||'contact').slice(0,22);
-    ctx.fillStyle='#d8ffe8'; ctx.font='10px ui-monospace,monospace';
-    ctx.fillText(label, p.x+8, p.y-6);
-    ctx.fillStyle='#7faf90'; ctx.font='9px ui-monospace,monospace';
-    ctx.fillText(`${c.device_type||'?'} · ${c.risk_score??'—'}`, p.x+8, p.y+6);
+  // Optional hub→contact vector spokes (OFF by default)
+  if(showVectors){
+    ctx.beginPath(); ctx.moveTo(hubP.x,hubP.y); ctx.lineTo(p.x,p.y);
+    ctx.strokeStyle=spoke; ctx.lineWidth=1+str*2; ctx.stroke();
+    const ang=Math.atan2(p.y-hubP.y,p.x-hubP.x);
+    ctx.beginPath();
+    ctx.moveTo(p.x,p.y);
+    ctx.lineTo(p.x-8*Math.cos(ang-0.4), p.y-8*Math.sin(ang-0.4));
+    ctx.lineTo(p.x-8*Math.cos(ang+0.4), p.y-8*Math.sin(ang+0.4));
+    ctx.closePath(); ctx.fillStyle=spoke; ctx.fill();
   }
+  // Default: small risk-colored dots; slightly larger for labeled high-value/high-risk
+  const r = labeled ? 5 : 2.5;
+  ctx.beginPath(); ctx.arc(p.x,p.y,r,0,Math.PI*2);
+  ctx.fillStyle=fill; ctx.fill();
+  if(labeled){
+    // faint ring so labeled contacts pop without text clutter
+    ctx.beginPath(); ctx.arc(p.x,p.y,r+2,0,Math.PI*2);
+    ctx.strokeStyle=fill; ctx.globalAlpha=0.55; ctx.lineWidth=1; ctx.stroke(); ctx.globalAlpha=1;
+  }
+  return {p, labeled, c};
 }
 
 function drawClusterBadge(ctx, cl){
@@ -369,22 +420,31 @@ function drawMap(){
 
   const {keep, noise} = splitContacts(contacts);
   clusterHits=[];
+  placedLabels=[];
 
-  // Always-show / high-value contacts: full labels + signal vectors
+  // Pass 1: dots (+ optional vectors). Labels deferred for de-overlap.
+  const labelQueue=[];
   for(const c of keep){
-    drawContact(ctx, hubP, c, proj, true);
+    const want=shouldLabel(c);
+    const drawn=drawContact(ctx, hubP, c, proj, want);
+    if(drawn && want) labelQueue.push(drawn);
   }
 
   if(showBleNoise){
     for(const c of noise){
-      drawContact(ctx, hubP, c, proj, true);
+      // Expanded noise stays as dots; label only if somehow high-value/high-risk
+      const want=shouldLabel(c);
+      const drawn=drawContact(ctx, hubP, c, proj, want);
+      if(drawn && want) labelQueue.push(drawn);
     }
   } else {
     const clusters = clusterNoise(noise, proj);
     for(const cl of clusters){
       if(expandedClusterId === cl.id){
         for(const c of cl.members){
-          drawContact(ctx, hubP, c, proj, true);
+          const want=shouldLabel(c);
+          const drawn=drawContact(ctx, hubP, c, proj, want);
+          if(drawn && want) labelQueue.push(drawn);
         }
         // faint ring marking the expanded cluster
         ctx.beginPath(); ctx.arc(cl.x, cl.y, 22, 0, Math.PI*2);
@@ -398,16 +458,24 @@ function drawMap(){
     }
   }
 
+  // Pass 2: short labels, highest priority first; skip when overlapping
+  labelQueue.sort((a,b)=>labelPriority(b.c)-labelPriority(a.c));
+  for(const item of labelQueue){
+    tryPlaceLabel(ctx, shortLabel(item.c), item.p.x, item.p.y, labelPriority(item.c));
+  }
+
   ctx.strokeStyle='rgba(61,255,154,.5)'; ctx.beginPath();
   ctx.arc(w-36,36,16,0,Math.PI*2); ctx.stroke();
   ctx.fillStyle='#3dff9a'; ctx.font='10px ui-monospace,monospace';
   ctx.fillText('N', w-40, 24);
 
   const noiseN = noise.length;
+  const labeledN = labelQueue.length;
   const base = (mapMeta&&mapMeta.address)?`OFFLINE TOPO · ${String(mapMeta.address).slice(0,28)}`:'OFFLINE TOPO · green phosphor';
+  const vec = showVectors ? 'vectors ON' : 'vectors OFF';
   $('maplegend').textContent = showBleNoise
-    ? `${base} · BLE noise EXPANDED (${noiseN})`
-    : `${base} · BLE noise clustered (${noiseN}) · tap badge or toggle`;
+    ? `${base} · ${vec} · labels ${labeledN} · BLE EXPANDED (${noiseN})`
+    : `${base} · ${vec} · labels ${labeledN} · BLE clustered (${noiseN})`;
 }
 
 function syncBleBtn(){
@@ -416,12 +484,23 @@ function syncBleBtn(){
   btn.textContent = showBleNoise ? 'BLE noise: ON' : 'BLE noise: OFF';
   btn.classList.toggle('active', showBleNoise);
 }
+function syncVectorBtn(){
+  const btn=$('btnVectors');
+  if(!btn) return;
+  btn.textContent = showVectors ? 'Vectors: ON' : 'Vectors: OFF';
+  btn.classList.toggle('active', showVectors);
+}
 function toggleBleNoise(){
   showBleNoise = !showBleNoise;
   if(showBleNoise) expandedClusterId=null;
   syncBleBtn();
   drawMap();
   renderContacts(contacts);
+}
+function toggleVectors(){
+  showVectors = !showVectors;
+  syncVectorBtn();
+  drawMap();
 }
 function onMapClick(ev){
   const canvas=$('map');
@@ -537,11 +616,13 @@ async function refresh(){
     renderPatterns(pats);
     renderStatus(st); renderHears(hears); renderAlerts(alerts);
     syncBleBtn();
+    syncVectorBtn();
     drawMap();
   }catch(e){ console.warn(e); }
   $('clock').textContent = new Date().toLocaleString();
 }
 $('btnBleNoise').addEventListener('click', toggleBleNoise);
+$('btnVectors').addEventListener('click', toggleVectors);
 $('map').addEventListener('click', onMapClick);
 loadMap().then(refresh);
 setInterval(refresh, 5000);
