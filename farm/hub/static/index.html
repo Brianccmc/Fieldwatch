@@ -89,9 +89,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
       <div class="map-controls">
         <span class="pill btn" id="btnBleNoise" title="Expand/hide low-signal Transient BLE noise">BLE noise: OFF</span>
         <span class="pill btn" id="btnVectors" title="Show/hide hub→contact signal vector spokes">Vectors: OFF</span>
+        <span class="pill btn" id="btnFarmGear" title="Show trusted farm APs/cams/nodes (hidden by default)">Farm gear: OFF</span>
       </div>
       <canvas id="map" width="900" height="560" aria-label="Parcel topographic map"></canvas>
-      <div class="map-legend" id="maplegend">OFFLINE TOPO · green phosphor · vectors OFF · sparse labels</div>
+      <div class="map-legend" id="maplegend">OFFLINE TOPO · suspicious-only · ≤3 markers · vectors OFF</div>
     </div>
     <div class="side">
       <div class="card">
@@ -129,7 +130,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
     </div>
   </div>
   <div class="footer">
-    <span>REST + SSE · static GeoJSON topo · vectors OFF · sparse labels · BLE clustered · demo ON</span>
+    <span>REST + SSE · suspicious-only · ≤3 map markers · farm gear OFF · vectors OFF · demo ON</span>
     <span id="clock"></span>
   </div>
 </div>
@@ -138,20 +139,27 @@ const $ = (id)=>document.getElementById(id);
 let mapDoc=null, mapMeta=null, stations=[], contacts=[], hub={lat:37.0457191,lon:-91.9502374};
 let showBleNoise=false;
 let showVectors=false; // hub→contact spokes OFF by default (declutter)
+let showFarmGear=false; // trusted farm APs/cams/nodes OFF map by default (pass 3)
 let expandedClusterId=null;
 let clusterHits=[]; // {id,x,y,r,members}
 let lastProj=null, lastHubP=null;
 let placedLabels=[]; // [{x,y,w,h}] for de-overlap this frame
 
-/** High-value / named device types always labeled on the map. */
-const ALWAYS_SHOW_TYPES = new Set([
-  'trail_cam','flock_camera','known_farm_node','rogue_ap',
-  'remote_id_drone','rid_emergency','unknown_phone','visitor_wifi',
-  'tracker_separated','tracker_near','allowlisted',
+/** Trusted / personal farm gear — hidden from map+panel by default. */
+const TRUSTED_HIDE = new Set([
+  'trail_cam','flock_camera','known_farm_node','allowlisted',
+  'tracker_near','heartbeat',
+]);
+/** Rogue / suspicious classes — candidates for map markers. */
+const SUSPICIOUS_TYPES = new Set([
+  'rogue_ap','remote_id_drone','rid_emergency',
+  'unknown_phone','visitor_wifi','tracker_separated',
 ]);
 /** Transient / anonymous BLE types collapsed into count badges by default. */
 const NOISE_TYPES = new Set(['unknown_ble','transient_ble']);
-const HIGH_RISK = new Set(['high','critical']);
+const HIGH_RISK = new Set(['high','critical','elevated']);
+/** Hard cap on simultaneous map markers (demo density). */
+const MAP_MARKER_CAP = 3;
 /** Low-signal threshold: unknown_ble at or below this RSSI is noise (unless high risk). */
 const NOISE_RSSI_MAX = -70;
 /** Spatial cluster cell size in projected pixels. */
@@ -201,15 +209,39 @@ function projectFactory(bbox, w, h, pad=28){
   });
 }
 
-/** Default declutter: cluster/hide Transient BLE / unknown_ble (esp. low RSSI). */
+function dtypeOf(c){ return (c.device_type||'').toLowerCase(); }
+function riskLvl(c){ return (c.risk_level||'').toLowerCase(); }
+function heardAtMs(c){
+  const t=c.last_heard_at||c.heard_at||c.updated_at||0;
+  if(typeof t==='number') return t<1e12?t*1000:t;
+  const p=Date.parse(t); return p||0;
+}
+
+/** Trusted farm gear (barn AP, cams, known nodes, near trackers, allowlisted). */
+function isTrustedFarm(c){
+  return TRUSTED_HIDE.has(dtypeOf(c));
+}
+
+/**
+ * Suspicious / rogue — show by default.
+ * Trusted types stay hidden even if somehow tagged elevated/high/critical
+ * (unless truly in SUSPICIOUS_TYPES, which they are not).
+ */
+function isSuspicious(c){
+  if(isTrustedFarm(c)) return false;
+  const dt=dtypeOf(c);
+  if(SUSPICIOUS_TYPES.has(dt)) return true;
+  // High/critical/elevated unknowns (not trusted) — e.g. hot unknown_ble
+  if(HIGH_RISK.has(riskLvl(c))) return true;
+  return false;
+}
+
+/** Residual BLE noise eligible for cluster badges (never trusted, never suspicious). */
 function isBleNoise(c){
-  const lvl=(c.risk_level||'').toLowerCase();
-  if(HIGH_RISK.has(lvl)) return false;
-  const dt=(c.device_type||'').toLowerCase();
-  if(ALWAYS_SHOW_TYPES.has(dt)) return false;
+  if(isTrustedFarm(c) || isSuspicious(c)) return false;
+  const dt=dtypeOf(c);
   if(NOISE_TYPES.has(dt)){
-    // Strong unknown_ble stays labeled (close enough to matter); weak stays clustered.
-    if(typeof c.rssi==='number' && c.rssi > NOISE_RSSI_MAX) return false;
+    if(typeof c.rssi==='number' && c.rssi > NOISE_RSSI_MAX && HIGH_RISK.has(riskLvl(c))) return false;
     return true;
   }
   const label=((c.device_label||'')+' '+(c.name||'')).toLowerCase();
@@ -217,12 +249,39 @@ function isBleNoise(c){
   return false;
 }
 
+/**
+ * Partition contacts for HUD presentation (API still returns all types).
+ * keep  = suspicious (+ farm gear when toggled)
+ * noise = BLE residual for clustering
+ * hidden = trusted farm gear when toggle OFF (and other non-suspicious)
+ */
 function splitContacts(rows){
-  const keep=[], noise=[];
+  const keep=[], noise=[], hidden=[];
   for(const c of (rows||[])){
-    if(isBleNoise(c)) noise.push(c); else keep.push(c);
+    if(isTrustedFarm(c)){
+      if(showFarmGear) keep.push(c); else hidden.push(c);
+      continue;
+    }
+    if(isSuspicious(c)){ keep.push(c); continue; }
+    if(isBleNoise(c)){ noise.push(c); continue; }
+    hidden.push(c);
   }
-  return {keep, noise};
+  return {keep, noise, hidden};
+}
+
+/** Cap map markers to MAP_MARKER_CAP by risk_score then recency. */
+function selectMapMarkers(keep){
+  const withPos=(keep||[]).filter(c=>c.lat!=null&&c.lon!=null);
+  const ranked=withPos.slice().sort((a,b)=>{
+    const rs=(b.risk_score??0)-(a.risk_score??0);
+    if(rs) return rs;
+    return heardAtMs(b)-heardAtMs(a);
+  });
+  return {
+    onMap: ranked.slice(0, MAP_MARKER_CAP),
+    overflow: ranked.slice(MAP_MARKER_CAP),
+    noPos: (keep||[]).filter(c=>c.lat==null||c.lon==null),
+  };
 }
 
 function clusterNoise(noise, proj){
@@ -255,18 +314,17 @@ function clusterNoise(noise, proj){
   });
 }
 
-/** Short labels only for always-show high-value types or high/critical risk. */
+/** Label all capped suspicious map markers (sparse cast ≤3). */
 function shouldLabel(c){
-  const lvl=(c.risk_level||'').toLowerCase();
-  if(HIGH_RISK.has(lvl)) return true;
-  const dt=(c.device_type||'').toLowerCase();
-  return ALWAYS_SHOW_TYPES.has(dt);
+  if(isSuspicious(c)) return true;
+  if(showFarmGear && isTrustedFarm(c)) return true;
+  return HIGH_RISK.has(riskLvl(c));
 }
 function labelPriority(c){
-  const lvl=(c.risk_level||'').toLowerCase();
+  const lvl=riskLvl(c);
   if(lvl==='critical') return 4;
   if(lvl==='high'||lvl==='elevated') return 3;
-  if(ALWAYS_SHOW_TYPES.has((c.device_type||'').toLowerCase())) return 2;
+  if(SUSPICIOUS_TYPES.has(dtypeOf(c))) return 2;
   return 1;
 }
 function shortLabel(c){
@@ -418,21 +476,35 @@ function drawMap(){
     ctx.fillText(s.id, p.x+7, p.y+3);
   }
 
-  const {keep, noise} = splitContacts(contacts);
+  const {keep, noise, hidden} = splitContacts(contacts);
+  const {onMap, overflow} = selectMapMarkers(keep);
   clusterHits=[];
   placedLabels=[];
 
-  // Pass 1: dots (+ optional vectors). Labels deferred for de-overlap.
+  // Pass 1: capped suspicious markers only (≤ MAP_MARKER_CAP).
   const labelQueue=[];
-  for(const c of keep){
+  for(const c of onMap){
     const want=shouldLabel(c);
     const drawn=drawContact(ctx, hubP, c, proj, want);
     if(drawn && want) labelQueue.push(drawn);
   }
 
+  // Overflow badge (panel shows detail; map stays sparse)
+  if(overflow.length){
+    const ox=w-52, oy=h-52;
+    ctx.beginPath(); ctx.arc(ox, oy, 16, 0, Math.PI*2);
+    ctx.fillStyle='rgba(255,184,77,.18)'; ctx.fill();
+    ctx.strokeStyle='rgba(255,184,77,.85)'; ctx.lineWidth=1.5; ctx.stroke();
+    ctx.fillStyle='#ffb84d'; ctx.font='bold 11px ui-monospace,monospace';
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText('+'+overflow.length, ox, oy+0.5);
+    ctx.textAlign='start'; ctx.textBaseline='alphabetic';
+    ctx.fillStyle='#9fddb4'; ctx.font='8px ui-monospace,monospace';
+    ctx.fillText('more', ox+18, oy+3);
+  }
+
   if(showBleNoise){
     for(const c of noise){
-      // Expanded noise stays as dots; label only if somehow high-value/high-risk
       const want=shouldLabel(c);
       const drawn=drawContact(ctx, hubP, c, proj, want);
       if(drawn && want) labelQueue.push(drawn);
@@ -446,7 +518,6 @@ function drawMap(){
           const drawn=drawContact(ctx, hubP, c, proj, want);
           if(drawn && want) labelQueue.push(drawn);
         }
-        // faint ring marking the expanded cluster
         ctx.beginPath(); ctx.arc(cl.x, cl.y, 22, 0, Math.PI*2);
         ctx.strokeStyle='rgba(154,216,255,.45)'; ctx.setLineDash([3,3]); ctx.stroke();
         ctx.setLineDash([]);
@@ -471,11 +542,14 @@ function drawMap(){
 
   const noiseN = noise.length;
   const labeledN = labelQueue.length;
-  const base = (mapMeta&&mapMeta.address)?`OFFLINE TOPO · ${String(mapMeta.address).slice(0,28)}`:'OFFLINE TOPO · green phosphor';
+  const base = (mapMeta&&mapMeta.address)?`OFFLINE TOPO · ${String(mapMeta.address).slice(0,28)}`:'OFFLINE TOPO · suspicious-only';
   const vec = showVectors ? 'vectors ON' : 'vectors OFF';
+  const farm = showFarmGear ? 'farm ON' : 'farm OFF';
+  const cap = `map ${onMap.length}/${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'');
+  const hideN = hidden.length;
   $('maplegend').textContent = showBleNoise
-    ? `${base} · ${vec} · labels ${labeledN} · BLE EXPANDED (${noiseN})`
-    : `${base} · ${vec} · labels ${labeledN} · BLE clustered (${noiseN})`;
+    ? `${base} · ${farm} · ${vec} · ${cap} · BLE EXPANDED (${noiseN}) · hidden ${hideN}`
+    : `${base} · ${farm} · ${vec} · ${cap} · BLE×${noiseN} · hidden ${hideN}`;
 }
 
 function syncBleBtn(){
@@ -490,6 +564,12 @@ function syncVectorBtn(){
   btn.textContent = showVectors ? 'Vectors: ON' : 'Vectors: OFF';
   btn.classList.toggle('active', showVectors);
 }
+function syncFarmBtn(){
+  const btn=$('btnFarmGear');
+  if(!btn) return;
+  btn.textContent = showFarmGear ? 'Farm gear: ON' : 'Farm gear: OFF';
+  btn.classList.toggle('active', showFarmGear);
+}
 function toggleBleNoise(){
   showBleNoise = !showBleNoise;
   if(showBleNoise) expandedClusterId=null;
@@ -501,6 +581,14 @@ function toggleVectors(){
   showVectors = !showVectors;
   syncVectorBtn();
   drawMap();
+}
+function toggleFarmGear(){
+  showFarmGear = !showFarmGear;
+  syncFarmBtn();
+  drawMap();
+  renderContacts(contacts);
+  // refresh hubkv contact counts
+  try{ fetch('/api/status').then(r=>r.json()).then(renderStatus); }catch(_){}
 }
 function onMapClick(ev){
   const canvas=$('map');
@@ -521,43 +609,54 @@ function onMapClick(ev){
   }
 }
 function renderStatus(s){
-  const {keep, noise} = splitContacts(contacts);
+  const {keep, noise, hidden} = splitContacts(contacts);
+  const {onMap, overflow} = selectMapMarkers(keep);
   $('pills').innerHTML = [
     pill('HUB', !!s.hub_ok),
     pill('MQTT', !!(s.mqtt&&s.mqtt.connected), !s.mqtt?.connected),
     pill('XIAO', !!(s.xiao&&s.xiao.connected), !s.xiao?.connected),
     pill('DEMO', !!(s.demo&&s.demo.enabled), false),
-    pill('MAP', true),
+    pill(`MAP ${onMap.length}`, true),
+    pill(`SUS×${keep.filter(isSuspicious).length}`, keep.length>0),
     pill(`BLE×${noise.length}`, showBleNoise || !!expandedClusterId, noise.length>0 && !showBleNoise),
   ].join('');
-  $('subtitle').textContent = `uptime ${s.uptime_sec||0}s · ingest ${s.ingest_count||0} · alerts ${s.alert_count||0} · ${(mapMeta&&mapMeta.address)||'parcel topo'}`;
+  $('subtitle').textContent = `suspicious-only · uptime ${s.uptime_sec||0}s · ingest ${s.ingest_count||0} · alerts ${s.alert_count||0} · ${(mapMeta&&mapMeta.address)||'parcel topo'}`;
   const x=s.xiao||{}, m=s.mqtt||{};
   $('hubkv').innerHTML = [
     ['Heartbeat', ago(s.last_heartbeat_at)],
     ['MQTT msgs', m.msg_count??0],
     ['XIAO JSON', x.json_count??0],
     ['Demo counts', (s.demo&&s.demo.count)||0],
-    ['Contacts', `${keep.length} shown · ${noise.length} BLE noise`],
+    ['Map markers', `${onMap.length} / ${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'')],
+    ['Contacts', `${keep.length} suspicious · ${hidden.length} farm hidden · ${noise.length} BLE`],
   ].map(([k,v])=>`<span>${k}</span><b>${v}</b>`).join('');
 }
 function renderContacts(rows){
   contacts = rows||[];
-  const {keep, noise} = splitContacts(contacts);
-  // Prefer high-value first; optionally append noise when expanded
+  const {keep, noise, hidden} = splitContacts(contacts);
+  const {onMap, overflow} = selectMapMarkers(keep);
+  const onMapKeys = new Set(onMap.map(c=>c.mac||c.id||c.device_label));
   const ordered = keep.slice().sort((a,b)=>(b.risk_score??0)-(a.risk_score??0));
   let html = '';
-  if(noise.length){
-    html += `<div class="noise-summary">BLE noise: <b>${noise.length}</b> clustered on map · ${showBleNoise?'showing labels':'hidden as count badges'} · use toggle or tap badge</div>`;
-  }
+  html += `<div class="noise-summary">Suspicious on map: <b>${onMap.length}</b>/${MAP_MARKER_CAP}` +
+    (overflow.length?` · <b>+${overflow.length} more</b> in list only`:'') +
+    ` · farm gear ${showFarmGear?'ON':'OFF'} (${hidden.length} hidden)` +
+    (noise.length?` · BLE noise ${noise.length}`:'') +
+    `</div>`;
   const list = showBleNoise ? ordered.concat(noise) : ordered;
   html += list.slice(0,14).map(c=>{
     const noisy = isBleNoise(c);
+    const onMapMark = onMapKeys.has(c.mac||c.id||c.device_label);
+    const farm = isTrustedFarm(c);
     return `<div class="contact${noisy?' noise':''}">
     <div class="title"><b>${c.device_label||c.name||c.mac||'—'}</b>${riskBadge(c.risk_level,c.risk_score)}</div>
-    <div class="meta">${c.device_type||'?'} · ${c.station_id||''} · brg ${c.bearing_deg??'—'}° · ${c.range_m??'—'}m · rssi ${c.rssi??'—'}</div>
+    <div class="meta">${c.device_type||'?'} · ${onMapMark?'MAP · ':''}${farm?'farm · ':''}${c.station_id||''} · brg ${c.bearing_deg??'—'}° · ${c.range_m??'—'}m · rssi ${c.rssi??'—'}</div>
     <div class="reasons">${(c.risk_reasons||[]).slice(0,3).join(' · ')}</div>
   </div>`;
-  }).join('') || '<span style="color:var(--muted)">no contacts</span>';
+  }).join('') || '<span style="color:var(--muted)">no suspicious contacts</span>';
+  if(overflow.length && list.length>MAP_MARKER_CAP){
+    // already listed in ordered; summary covers +N
+  }
   $('contacts').innerHTML = html;
 }
 function renderPatterns(doc){
@@ -617,12 +716,14 @@ async function refresh(){
     renderStatus(st); renderHears(hears); renderAlerts(alerts);
     syncBleBtn();
     syncVectorBtn();
+    syncFarmBtn();
     drawMap();
   }catch(e){ console.warn(e); }
   $('clock').textContent = new Date().toLocaleString();
 }
 $('btnBleNoise').addEventListener('click', toggleBleNoise);
 $('btnVectors').addEventListener('click', toggleVectors);
+$('btnFarmGear').addEventListener('click', toggleFarmGear);
 $('map').addEventListener('click', onMapClick);
 loadMap().then(refresh);
 setInterval(refresh, 5000);
