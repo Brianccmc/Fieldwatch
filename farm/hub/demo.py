@@ -17,7 +17,8 @@ log = logging.getLogger("fieldwatch.demo")
 
 DEMO_STATIONS = ("house", "gate-n", "ridge-2", "pond")
 
-# Recurring cast so patterns (revisit/dwell/corridors) show up quickly.
+# Pass 3: suspicious-only cast (trusted farm gear not spawned — HUD hides them anyway).
+# Keep ≤3–4 distinct contacts so map cap (~3) stays readable for demos.
 _CAST = [
     {
         "kind": "wifi",
@@ -28,33 +29,6 @@ _CAST = [
         "mac": "D2:11:22:33:44:55",
         "approach_corridor": "CR-1130 approach",
         "rssi": (-62, -48),
-    },
-    {
-        "kind": "wifi",
-        "name": "BarnAP",
-        "device_type": "known_farm_node",
-        "device_label": "Barn Wi-Fi AP",
-        "station_id": "house",
-        "mac": "B8:27:EB:10:00:01",
-        "rssi": (-55, -40),
-    },
-    {
-        "kind": "wifi",
-        "name": "TrailCam_7",
-        "device_type": "trail_cam",
-        "device_label": "Trail camera 7",
-        "station_id": "pond",
-        "mac": "A4:C1:38:AA:07:07",
-        "rssi": (-78, -60),
-    },
-    {
-        "kind": "wifi",
-        "name": "Flock_ABC",
-        "device_type": "flock_camera",
-        "device_label": "Flock Safety camera",
-        "station_id": "ridge-2",
-        "mac": "00:1A:2B:F1:0C:01",
-        "rssi": (-70, -58),
     },
     {
         "kind": "wifi",
@@ -75,15 +49,6 @@ _CAST = [
         "mac": "0E:E3:F2:A8:33:7D",
         "rssi": (-58, -45),
         "separated": True,
-    },
-    {
-        "kind": "tracker_near",
-        "name": "FindHubDemo",
-        "device_type": "tracker_near",
-        "device_label": "Find Hub nearby",
-        "station_id": "pond",
-        "mac": "9C:49:1A:52:6F:D7",
-        "rssi": (-65, -52),
     },
     {
         "kind": "rid",
@@ -139,7 +104,8 @@ class DemoSim:
 
     def _run(self) -> None:
         self._emit_heartbeat("house")
-        for _ in range(min(6, len(_CAST))):
+        # Seed ≤3 suspicious contacts (map cap); rotate the rest over time
+        for _ in range(min(3, len(_CAST))):
             self._emit_cast()
         while not self._stop.wait(config.DEMO_INTERVAL_SEC):
             self._emit_heartbeat(random.choice(DEMO_STATIONS))
@@ -167,7 +133,8 @@ class DemoSim:
         spec = _CAST[self._i % len(_CAST)]
         self._i += 1
         # Occasional one-off unknown BLE — kept sparse so default HUD stays readable
-        if random.random() < 0.05:
+        # Rare BLE noise (hidden by default; not a map contact)
+        if random.random() < 0.02:
             self._emit_random()
             return
         lo, hi = spec["rssi"]
