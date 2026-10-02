@@ -166,8 +166,8 @@ class DemoSim:
     def _emit_cast(self) -> None:
         spec = _CAST[self._i % len(_CAST)]
         self._i += 1
-        # Occasional one-off unknown so HUD stays lively
-        if random.random() < 0.18:
+        # Occasional one-off unknown BLE — kept sparse so default HUD stays readable
+        if random.random() < 0.05:
             self._emit_random()
             return
         lo, hi = spec["rssi"]
@@ -230,6 +230,13 @@ class DemoSim:
         STATE.demo_count += 1
         self._on_raw(raw)
 
+    # Small fixed pool so transient BLE updates in place instead of flooding unique labels.
+    _TRANSIENT_POOL = (
+        "AA:BB:CC:10:00:01",
+        "AA:BB:CC:10:00:02",
+        "AA:BB:CC:10:00:03",
+    )
+
     def _emit_random(self) -> None:
         station = random.choice(DEMO_STATIONS)
         raw = {
@@ -237,10 +244,10 @@ class DemoSim:
             "station_id": station,
             "heard_at": _iso(),
             "radio": "ble_adv",
-            "mac": _mac(),
-            "mac_kind": random.choice(["public", "random"]),
-            "rssi": random.randint(-95, -50),
-            "name": random.choice(["Tile", "AirTag?", "", "Watch"]),
+            "mac": random.choice(self._TRANSIENT_POOL),
+            "mac_kind": "random",
+            "rssi": random.randint(-92, -70),  # low-signal noise band
+            "name": "",
             "mode": "ble_scan",
             "device_type": "unknown_ble",
             "device_label": "Transient BLE",

@@ -23,9 +23,12 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
   border-radius:12px;padding:10px 12px;box-shadow:0 0 24px rgba(61,255,154,.08) inset}
 .brand b{letter-spacing:.18em;font-size:13px;color:var(--cyan);text-shadow:0 0 12px rgba(61,255,154,.5)}
 .brand span{font-size:11px;color:var(--muted);display:block;margin-top:2px}
-.pills{display:flex;flex-wrap:wrap;gap:6px}
+.pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .pill{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;
   background:var(--glass);display:inline-flex;gap:6px;align-items:center}
+.pill.btn{cursor:pointer;user-select:none}
+.pill.btn:hover{border-color:var(--cyan);color:#e8ffe8}
+.pill.btn.active{background:rgba(61,255,154,.12);border-color:var(--cyan);color:var(--cyan)}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);box-shadow:0 0 8px currentColor}
 .dot.on{background:var(--green);color:var(--green)}
 .dot.warn{background:var(--amber);color:var(--amber)}
@@ -36,9 +39,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
   border-radius:12px;padding:10px;backdrop-filter:blur(8px)}
 .card h2{margin:0 0 8px;font-size:11px;letter-spacing:.16em;color:var(--cyan);font-weight:600}
 .map-card{padding:0;overflow:hidden;min-height:420px;position:relative}
-#map{width:100%;height:min(62vh,560px);display:block;background:#010604}
+#map{width:100%;height:min(62vh,560px);display:block;background:#010604;cursor:crosshair}
 .map-legend{position:absolute;left:10px;bottom:10px;font-size:10px;color:var(--muted);
-  background:rgba(0,0,0,.55);border:1px solid var(--line);border-radius:8px;padding:6px 8px}
+  background:rgba(0,0,0,.55);border:1px solid var(--line);border-radius:8px;padding:6px 8px;max-width:70%}
+.map-controls{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px;z-index:2}
 .side{display:flex;flex-direction:column;gap:10px}
 .kv{display:grid;grid-template-columns:1fr auto;gap:4px 10px;font-size:12px}
 .kv span{color:var(--muted)} .kv b{color:#e8ffe8;font-weight:600}
@@ -52,6 +56,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
 .badge.alert{background:rgba(255,77,106,.15);border-color:var(--red);color:#ffb3c0}
 .badge.risk-critical{background:rgba(255,77,106,.2);border-color:var(--red);color:#ffb3c0}
 .badge.risk-elevated{background:rgba(255,184,77,.15);border-color:var(--amber);color:var(--amber)}
+.badge.risk-high{background:rgba(255,184,77,.15);border-color:var(--amber);color:var(--amber)}
 .badge.risk-watch{border-color:rgba(100,200,255,.4);color:#9ad8ff}
 .badge.risk-low{border-color:rgba(61,255,154,.35);color:var(--green)}
 .rssi{color:var(--cyan)}
@@ -62,9 +67,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
   animation:sweep 2.8s linear infinite}
 @keyframes sweep{0%{transform:translateX(-40%);opacity:.2}50%{opacity:.7}100%{transform:translateX(40%);opacity:.2}}
 .contact{border:1px solid rgba(61,255,154,.18);border-radius:8px;padding:7px 8px;margin-bottom:6px;background:rgba(0,20,12,.45)}
+.contact.noise{opacity:.55;border-style:dashed}
 .contact .title{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .contact .meta{font-size:10px;color:var(--muted);margin-top:3px}
 .reasons{font-size:10px;color:#9fddb4;margin-top:4px}
+.noise-summary{font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;border:1px dashed rgba(61,255,154,.25);border-radius:8px}
 </style>
 </head>
 <body>
@@ -79,8 +86,11 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
   <div class="scan"></div>
   <div class="layout">
     <div class="card map-card">
+      <div class="map-controls">
+        <span class="pill btn" id="btnBleNoise" title="Expand/hide low-signal Transient BLE noise">BLE noise: OFF</span>
+      </div>
       <canvas id="map" width="900" height="560" aria-label="Parcel topographic map"></canvas>
-      <div class="map-legend" id="maplegend">OFFLINE TOPO · green phosphor</div>
+      <div class="map-legend" id="maplegend">OFFLINE TOPO · green phosphor · BLE noise clustered</div>
     </div>
     <div class="side">
       <div class="card">
@@ -118,13 +128,31 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
     </div>
   </div>
   <div class="footer">
-    <span>REST + SSE · static GeoJSON topo · no tile CDN · demo default ON</span>
+    <span>REST + SSE · static GeoJSON topo · BLE noise clustered by default · demo default ON</span>
     <span id="clock"></span>
   </div>
 </div>
 <script>
 const $ = (id)=>document.getElementById(id);
 let mapDoc=null, mapMeta=null, stations=[], contacts=[], hub={lat:37.0457191,lon:-91.9502374};
+let showBleNoise=false;
+let expandedClusterId=null;
+let clusterHits=[]; // {id,x,y,r,members}
+let lastProj=null, lastHubP=null;
+
+/** High-value / named device types always labeled on the map. */
+const ALWAYS_SHOW_TYPES = new Set([
+  'trail_cam','flock_camera','known_farm_node','rogue_ap',
+  'remote_id_drone','rid_emergency','unknown_phone','visitor_wifi',
+  'tracker_separated','tracker_near','allowlisted',
+]);
+/** Transient / anonymous BLE types collapsed into count badges by default. */
+const NOISE_TYPES = new Set(['unknown_ble','transient_ble']);
+const HIGH_RISK = new Set(['high','critical']);
+/** Low-signal threshold: unknown_ble at or below this RSSI is noise (unless high risk). */
+const NOISE_RSSI_MAX = -70;
+/** Spatial cluster cell size in projected pixels. */
+const CLUSTER_CELL_PX = 48;
 
 function pill(label, on, warn){
   const d = on ? 'on' : (warn ? 'warn' : 'off');
@@ -143,6 +171,21 @@ function riskBadge(level, score){
   const lv=(level||'watch');
   return `<span class="badge risk-${lv}">${(score??'—')} ${lv.toUpperCase()}</span>`;
 }
+function riskRank(level){
+  const lv=(level||'').toLowerCase();
+  if(lv==='critical') return 4;
+  if(lv==='high'||lv==='elevated') return 3;
+  if(lv==='watch') return 2;
+  if(lv==='low') return 1;
+  return 0;
+}
+function riskColor(lvl, alpha){
+  const a = alpha==null ? 0.7 : alpha;
+  if(lvl==='critical') return `rgba(255,77,106,${a})`;
+  if(lvl==='elevated'||lvl==='high') return `rgba(255,184,77,${a})`;
+  if(lvl==='watch') return `rgba(154,216,255,${a})`;
+  return `rgba(61,255,154,${a})`;
+}
 function projectFactory(bbox, w, h, pad=28){
   const [minLon,minLat,maxLon,maxLat]=bbox;
   const spanLon=Math.max(1e-9,maxLon-minLon), spanLat=Math.max(1e-9,maxLat-minLat);
@@ -154,6 +197,106 @@ function projectFactory(bbox, w, h, pad=28){
     y: oy + (maxLat-lat)*scale
   });
 }
+
+/** Default declutter: cluster/hide Transient BLE / unknown_ble (esp. low RSSI). */
+function isBleNoise(c){
+  const lvl=(c.risk_level||'').toLowerCase();
+  if(HIGH_RISK.has(lvl)) return false;
+  const dt=(c.device_type||'').toLowerCase();
+  if(ALWAYS_SHOW_TYPES.has(dt)) return false;
+  if(NOISE_TYPES.has(dt)){
+    // Strong unknown_ble stays labeled (close enough to matter); weak stays clustered.
+    if(typeof c.rssi==='number' && c.rssi > NOISE_RSSI_MAX) return false;
+    return true;
+  }
+  const label=((c.device_label||'')+' '+(c.name||'')).toLowerCase();
+  if(label.includes('transient ble') || label.includes('anonymous ble')) return true;
+  return false;
+}
+
+function splitContacts(rows){
+  const keep=[], noise=[];
+  for(const c of (rows||[])){
+    if(isBleNoise(c)) noise.push(c); else keep.push(c);
+  }
+  return {keep, noise};
+}
+
+function clusterNoise(noise, proj){
+  const buckets=new Map();
+  for(const c of noise){
+    if(c.lat==null||c.lon==null) continue;
+    const p=proj(c.lon,c.lat);
+    const gx=Math.floor(p.x/CLUSTER_CELL_PX), gy=Math.floor(p.y/CLUSTER_CELL_PX);
+    const id=`${gx}:${gy}`;
+    let b=buckets.get(id);
+    if(!b){
+      b={id, members:[], sx:0, sy:0, maxRisk:'low', maxScore:0};
+      buckets.set(id,b);
+    }
+    b.members.push({c,p});
+    b.sx+=p.x; b.sy+=p.y;
+    if((c.risk_score??0) > b.maxScore){ b.maxScore=c.risk_score??0; b.maxRisk=c.risk_level||'watch'; }
+    if(riskRank(c.risk_level) > riskRank(b.maxRisk)) b.maxRisk=c.risk_level||'watch';
+  }
+  return [...buckets.values()].map(b=>{
+    const n=b.members.length;
+    return {
+      id:b.id,
+      x:b.sx/n, y:b.sy/n,
+      count:n,
+      maxRisk:b.maxRisk,
+      maxScore:b.maxScore,
+      members:b.members.map(m=>m.c),
+    };
+  });
+}
+
+function drawContact(ctx, hubP, c, proj, labeled){
+  if(c.lat==null||c.lon==null) return;
+  const p=proj(c.lon,c.lat);
+  const str=Math.max(0.15, Math.min(1, c.signal_strength??0.4));
+  const lvl=c.risk_level||'watch';
+  const col = lvl==='critical'?`rgba(255,77,106,${0.35+str*0.5})`
+    : (lvl==='elevated'||lvl==='high')?`rgba(255,184,77,${0.35+str*0.5})`
+    : `rgba(61,255,154,${0.25+str*0.45})`;
+  ctx.beginPath(); ctx.moveTo(hubP.x,hubP.y); ctx.lineTo(p.x,p.y);
+  ctx.strokeStyle=col; ctx.lineWidth=1+str*2; ctx.stroke();
+  const ang=Math.atan2(p.y-hubP.y,p.x-hubP.x);
+  ctx.beginPath();
+  ctx.moveTo(p.x,p.y);
+  ctx.lineTo(p.x-8*Math.cos(ang-0.4), p.y-8*Math.sin(ang-0.4));
+  ctx.lineTo(p.x-8*Math.cos(ang+0.4), p.y-8*Math.sin(ang+0.4));
+  ctx.closePath(); ctx.fillStyle=col; ctx.fill();
+  ctx.beginPath(); ctx.arc(p.x,p.y,5,0,Math.PI*2);
+  ctx.fillStyle=lvl==='critical'?'#ff4d6a':((lvl==='elevated'||lvl==='high')?'#ffb84d':'#3dff9a');
+  ctx.fill();
+  if(labeled){
+    const label=(c.device_label||c.name||c.mac||'contact').slice(0,22);
+    ctx.fillStyle='#d8ffe8'; ctx.font='10px ui-monospace,monospace';
+    ctx.fillText(label, p.x+8, p.y-6);
+    ctx.fillStyle='#7faf90'; ctx.font='9px ui-monospace,monospace';
+    ctx.fillText(`${c.device_type||'?'} · ${c.risk_score??'—'}`, p.x+8, p.y+6);
+  }
+}
+
+function drawClusterBadge(ctx, cl){
+  const r=12+Math.min(10, Math.floor(Math.log2(cl.count+1)*3));
+  ctx.beginPath(); ctx.arc(cl.x, cl.y, r, 0, Math.PI*2);
+  ctx.fillStyle=riskColor(cl.maxRisk, 0.22);
+  ctx.fill();
+  ctx.strokeStyle=riskColor(cl.maxRisk, 0.9);
+  ctx.lineWidth=1.5; ctx.stroke();
+  ctx.fillStyle='#e8ffe8'; ctx.font='bold 11px ui-monospace,monospace';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(String(cl.count), cl.x, cl.y+0.5);
+  ctx.textAlign='start'; ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#7faf90'; ctx.font='8px ui-monospace,monospace';
+  ctx.fillText('BLE', cl.x+r+3, cl.y-2);
+  ctx.fillText(cl.maxRisk, cl.x+r+3, cl.y+8);
+  return r;
+}
+
 function drawMap(){
   const canvas=$('map');
   if(!canvas) return;
@@ -164,7 +307,6 @@ function drawMap(){
   ctx.setTransform(dpr,0,0,dpr,0,0);
   const w=cssW, h=cssH;
   ctx.fillStyle='#010604'; ctx.fillRect(0,0,w,h);
-  // tactical grid
   ctx.strokeStyle='rgba(40,255,140,.08)'; ctx.lineWidth=1;
   for(let x=0;x<w;x+=40){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
   for(let y=0;y<h;y+=40){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
@@ -176,6 +318,7 @@ function drawMap(){
     bbox=[hub.lon-pad, hub.lat-pad, hub.lon+pad, hub.lat+pad];
   }
   const proj=projectFactory(bbox,w,h);
+  lastProj=proj;
 
   if(mapDoc&&mapDoc.features){
     for(const f of mapDoc.features){
@@ -206,8 +349,8 @@ function drawMap(){
     }
   }
 
-  // hub + stations
   const hubP=proj(hub.lon,hub.lat);
+  lastHubP=hubP;
   ctx.strokeStyle='rgba(61,255,154,.35)'; ctx.lineWidth=1;
   ctx.beginPath(); ctx.arc(hubP.x,hubP.y,18,0,Math.PI*2); ctx.stroke();
   ctx.beginPath(); ctx.arc(hubP.x,hubP.y,4,0,Math.PI*2);
@@ -224,48 +367,89 @@ function drawMap(){
     ctx.fillText(s.id, p.x+7, p.y+3);
   }
 
-  // contacts + signal vectors from hub
-  for(const c of contacts){
-    if(c.lat==null||c.lon==null) continue;
-    const p=proj(c.lon,c.lat);
-    const str=Math.max(0.15, Math.min(1, c.signal_strength??0.4));
-    ctx.beginPath(); ctx.moveTo(hubP.x,hubP.y); ctx.lineTo(p.x,p.y);
-    const lvl=c.risk_level||'watch';
-    const col = lvl==='critical'?'rgba(255,77,106,'+(0.35+str*0.5)+')'
-      : lvl==='elevated'?'rgba(255,184,77,'+(0.35+str*0.5)+')'
-      : 'rgba(61,255,154,'+(0.25+str*0.45)+')';
-    ctx.strokeStyle=col; ctx.lineWidth=1+str*2; ctx.stroke();
-    // arrow head
-    const ang=Math.atan2(p.y-hubP.y,p.x-hubP.x);
-    ctx.beginPath();
-    ctx.moveTo(p.x,p.y);
-    ctx.lineTo(p.x-8*Math.cos(ang-0.4), p.y-8*Math.sin(ang-0.4));
-    ctx.lineTo(p.x-8*Math.cos(ang+0.4), p.y-8*Math.sin(ang+0.4));
-    ctx.closePath(); ctx.fillStyle=col; ctx.fill();
-    // marker
-    ctx.beginPath(); ctx.arc(p.x,p.y,5,0,Math.PI*2);
-    ctx.fillStyle=lvl==='critical'?'#ff4d6a':(lvl==='elevated'?'#ffb84d':'#3dff9a');
-    ctx.fill();
-    const label=(c.device_label||c.name||c.mac||'contact').slice(0,22);
-    ctx.fillStyle='#d8ffe8'; ctx.font='10px ui-monospace,monospace';
-    ctx.fillText(label, p.x+8, p.y-6);
-    ctx.fillStyle='#7faf90'; ctx.font='9px ui-monospace,monospace';
-    ctx.fillText(`${c.device_type||'?'} · ${c.risk_score??'—'}`, p.x+8, p.y+6);
+  const {keep, noise} = splitContacts(contacts);
+  clusterHits=[];
+
+  // Always-show / high-value contacts: full labels + signal vectors
+  for(const c of keep){
+    drawContact(ctx, hubP, c, proj, true);
   }
 
-  // compass
+  if(showBleNoise){
+    for(const c of noise){
+      drawContact(ctx, hubP, c, proj, true);
+    }
+  } else {
+    const clusters = clusterNoise(noise, proj);
+    for(const cl of clusters){
+      if(expandedClusterId === cl.id){
+        for(const c of cl.members){
+          drawContact(ctx, hubP, c, proj, true);
+        }
+        // faint ring marking the expanded cluster
+        ctx.beginPath(); ctx.arc(cl.x, cl.y, 22, 0, Math.PI*2);
+        ctx.strokeStyle='rgba(154,216,255,.45)'; ctx.setLineDash([3,3]); ctx.stroke();
+        ctx.setLineDash([]);
+        clusterHits.push({id:cl.id, x:cl.x, y:cl.y, r:24, members:cl.members});
+      } else {
+        const r = drawClusterBadge(ctx, cl);
+        clusterHits.push({id:cl.id, x:cl.x, y:cl.y, r, members:cl.members});
+      }
+    }
+  }
+
   ctx.strokeStyle='rgba(61,255,154,.5)'; ctx.beginPath();
   ctx.arc(w-36,36,16,0,Math.PI*2); ctx.stroke();
   ctx.fillStyle='#3dff9a'; ctx.font='10px ui-monospace,monospace';
   ctx.fillText('N', w-40, 24);
+
+  const noiseN = noise.length;
+  const base = (mapMeta&&mapMeta.address)?`OFFLINE TOPO · ${String(mapMeta.address).slice(0,28)}`:'OFFLINE TOPO · green phosphor';
+  $('maplegend').textContent = showBleNoise
+    ? `${base} · BLE noise EXPANDED (${noiseN})`
+    : `${base} · BLE noise clustered (${noiseN}) · tap badge or toggle`;
+}
+
+function syncBleBtn(){
+  const btn=$('btnBleNoise');
+  if(!btn) return;
+  btn.textContent = showBleNoise ? 'BLE noise: ON' : 'BLE noise: OFF';
+  btn.classList.toggle('active', showBleNoise);
+}
+function toggleBleNoise(){
+  showBleNoise = !showBleNoise;
+  if(showBleNoise) expandedClusterId=null;
+  syncBleBtn();
+  drawMap();
+  renderContacts(contacts);
+}
+function onMapClick(ev){
+  const canvas=$('map');
+  const rect=canvas.getBoundingClientRect();
+  const x=ev.clientX-rect.left, y=ev.clientY-rect.top;
+  if(showBleNoise) return;
+  let hit=null;
+  for(const h of clusterHits){
+    const dx=x-h.x, dy=y-h.y;
+    if(dx*dx+dy*dy <= (h.r+4)*(h.r+4)){ hit=h; break; }
+  }
+  if(hit){
+    expandedClusterId = (expandedClusterId===hit.id) ? null : hit.id;
+    drawMap();
+  } else if(expandedClusterId){
+    expandedClusterId=null;
+    drawMap();
+  }
 }
 function renderStatus(s){
+  const {keep, noise} = splitContacts(contacts);
   $('pills').innerHTML = [
     pill('HUB', !!s.hub_ok),
     pill('MQTT', !!(s.mqtt&&s.mqtt.connected), !s.mqtt?.connected),
     pill('XIAO', !!(s.xiao&&s.xiao.connected), !s.xiao?.connected),
     pill('DEMO', !!(s.demo&&s.demo.enabled), false),
     pill('MAP', true),
+    pill(`BLE×${noise.length}`, showBleNoise || !!expandedClusterId, noise.length>0 && !showBleNoise),
   ].join('');
   $('subtitle').textContent = `uptime ${s.uptime_sec||0}s · ingest ${s.ingest_count||0} · alerts ${s.alert_count||0} · ${(mapMeta&&mapMeta.address)||'parcel topo'}`;
   const x=s.xiao||{}, m=s.mqtt||{};
@@ -274,16 +458,28 @@ function renderStatus(s){
     ['MQTT msgs', m.msg_count??0],
     ['XIAO JSON', x.json_count??0],
     ['Demo counts', (s.demo&&s.demo.count)||0],
-    ['Contacts', contacts.length],
+    ['Contacts', `${keep.length} shown · ${noise.length} BLE noise`],
   ].map(([k,v])=>`<span>${k}</span><b>${v}</b>`).join('');
 }
 function renderContacts(rows){
   contacts = rows||[];
-  $('contacts').innerHTML = contacts.slice(0,12).map(c=>`<div class="contact">
+  const {keep, noise} = splitContacts(contacts);
+  // Prefer high-value first; optionally append noise when expanded
+  const ordered = keep.slice().sort((a,b)=>(b.risk_score??0)-(a.risk_score??0));
+  let html = '';
+  if(noise.length){
+    html += `<div class="noise-summary">BLE noise: <b>${noise.length}</b> clustered on map · ${showBleNoise?'showing labels':'hidden as count badges'} · use toggle or tap badge</div>`;
+  }
+  const list = showBleNoise ? ordered.concat(noise) : ordered;
+  html += list.slice(0,14).map(c=>{
+    const noisy = isBleNoise(c);
+    return `<div class="contact${noisy?' noise':''}">
     <div class="title"><b>${c.device_label||c.name||c.mac||'—'}</b>${riskBadge(c.risk_level,c.risk_score)}</div>
     <div class="meta">${c.device_type||'?'} · ${c.station_id||''} · brg ${c.bearing_deg??'—'}° · ${c.range_m??'—'}m · rssi ${c.rssi??'—'}</div>
     <div class="reasons">${(c.risk_reasons||[]).slice(0,3).join(' · ')}</div>
-  </div>`).join('') || '<span style="color:var(--muted)">no contacts</span>';
+  </div>`;
+  }).join('') || '<span style="color:var(--muted)">no contacts</span>';
+  $('contacts').innerHTML = html;
 }
 function renderPatterns(doc){
   const list=doc.contacts||[];
@@ -340,10 +536,13 @@ async function refresh(){
     renderContacts(cts);
     renderPatterns(pats);
     renderStatus(st); renderHears(hears); renderAlerts(alerts);
+    syncBleBtn();
     drawMap();
   }catch(e){ console.warn(e); }
   $('clock').textContent = new Date().toLocaleString();
 }
+$('btnBleNoise').addEventListener('click', toggleBleNoise);
+$('map').addEventListener('click', onMapClick);
 loadMap().then(refresh);
 setInterval(refresh, 5000);
 window.addEventListener('resize', drawMap);
