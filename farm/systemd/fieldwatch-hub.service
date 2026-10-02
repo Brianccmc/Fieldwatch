@@ -1,0 +1,32 @@
+[Unit]
+Description=Fieldwatch farm hub (MQTT + serial + demo + HUD)
+After=network-online.target mosquitto.service
+Wants=network-online.target
+# Mosquitto may be optional at boot; hub retries MQTT.
+
+[Service]
+Type=simple
+User=brian
+Group=brian
+SupplementaryGroups=dialout
+WorkingDirectory=/home/brian/fieldwatch/farm/hub
+Environment=FIELDWATCH_DATA=/home/brian/fieldwatch/data
+Environment=FIELDWATCH_DB=/home/brian/fieldwatch/data/farm.sqlite
+Environment=FIELDWATCH_ALLOWLIST=/home/brian/fieldwatch/allowlist.json
+Environment=FIELDWATCH_MQTT_HOST=127.0.0.1
+Environment=FIELDWATCH_MQTT_USER=hub
+Environment=FIELDWATCH_MQTT_PASSWORD_FILE=/home/brian/fieldwatch/mqtt.passwd.env
+Environment=FIELDWATCH_DEMO=1
+Environment=FIELDWATCH_HUD_HOST=0.0.0.0
+Environment=FIELDWATCH_HUD_PORT=8080
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/brian/fieldwatch/venv/bin/python /home/brian/fieldwatch/farm/hub/service.py
+Restart=always
+RestartSec=3
+
+# Hardening (LAN appliance)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
