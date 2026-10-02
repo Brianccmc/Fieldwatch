@@ -7,11 +7,25 @@ This directory is the farm adaptation: persistent, solar listening stations on a
 | Piece | Role |
 |---|---|
 | `app/` (Fieldwatch) | Handheld survey tool + house-hub observer + signature library + TAK feed into ATAK |
-| `farm/docs/ARCHITECTURE.md` | Physics, coverage, hardware, legal bounds, phased build |
+| `farm/docs/` | Architecture + deploy notes |
 | `farm/schema/` | Shared observation JSON that stations and the hub speak |
 | `farm/stations.example.json` | Station registry the map and hub load |
-| `farm/firmware/` | ESP32-S3 edge firmware notes (listen → compact report) |
+| `farm/firmware/` | ESP32-S3+SX126x scaffold → NDJSON (NOT Meshtastic) |
 | `farm/catalog/` | Fieldwatch 1.1.16 catalog 88 subset (RID, DULT, Find Hub, Flock, drones, tags) |
-| `farm/hub/ingest.py` | Classify + SQLite + ntfy policy from 1.1.15/1.1.16 |
+| `farm/hub/` | Long-running hub: MQTT + serial + demo/sim → `ingest_one` + fighter-jet HUD |
+| `farm/systemd/` | `fieldwatch-hub.service` |
+| `farm/mosquitto/` | LAN Mosquitto example (passwd path documented, secret off-git) |
 
-Start with `farm/docs/ARCHITECTURE.md`. Do not commit parcel coordinates, family-device MAC allowlists, or live observation logs to a public remote.
+## Hub quick start (Pi)
+See `docs/DEPLOY.md`. Demo/sim is **DEFAULT ON** so the HUD is never empty before nodes arrive.
+
+```bash
+cd /home/brian/fieldwatch/farm/hub
+../venv/bin/python  # use /home/brian/fieldwatch/venv
+# or systemctl enable --now fieldwatch-hub
+curl http://127.0.0.1:8080/health
+```
+
+HUD binds `0.0.0.0:8080` for mobile browsers on LAN.
+
+Do not commit parcel coordinates, family-device MAC allowlists, live observation logs, or MQTT passwords.
