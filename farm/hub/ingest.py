@@ -12,12 +12,16 @@ from dult import alert_worthy_tracker
 from rid import plot_rule
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DB = Path("/tmp/fieldwatch-farm.sqlite")
-ALLOWLIST = ROOT / "hub" / "allowlist.example.json"
+try:
+    from config import DB_PATH as DEFAULT_DB, ALLOWLIST_PATH as _ALLOW_PREF, ALLOWLIST_EXAMPLE
+    ALLOWLIST = _ALLOW_PREF if _ALLOW_PREF.exists() else ALLOWLIST_EXAMPLE
+except Exception:  # noqa: BLE001 — standalone ingest still works
+    DEFAULT_DB = Path("/tmp/fieldwatch-farm.sqlite")
+    ALLOWLIST = ROOT / "hub" / "allowlist.example.json"
 
 
 def open_db(path: Path | None = None) -> sqlite3.Connection:
-    db = sqlite3.connect(path or DEFAULT_DB)
+    db = sqlite3.connect(path or DEFAULT_DB, check_same_thread=False)
     db.execute("CREATE TABLE IF NOT EXISTS hears (id INTEGER PRIMARY KEY, heard_at TEXT NOT NULL, station_id TEXT NOT NULL, radio TEXT NOT NULL, mac TEXT, name TEXT, rssi INTEGER, json TEXT NOT NULL)")
     db.execute("CREATE TABLE IF NOT EXISTS first_seen (key TEXT PRIMARY KEY, first_at TEXT NOT NULL, station_id TEXT NOT NULL)")
     db.commit()
