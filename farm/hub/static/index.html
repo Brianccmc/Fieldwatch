@@ -231,8 +231,11 @@ function isSuspicious(c){
   if(isTrustedFarm(c)) return false;
   const dt=dtypeOf(c);
   if(SUSPICIOUS_TYPES.has(dt)) return true;
-  // High/critical/elevated unknowns (not trusted) — e.g. hot unknown_ble
-  if(HIGH_RISK.has(riskLvl(c))) return true;
+  // High/critical unknowns only. Transient BLE needs critical to avoid spam;
+  // other non-trusted types use elevated/high/critical.
+  const lvl=riskLvl(c);
+  if(NOISE_TYPES.has(dt)) return lvl==='critical';
+  if(HIGH_RISK.has(lvl)) return true;
   return false;
 }
 
