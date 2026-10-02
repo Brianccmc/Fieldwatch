@@ -1,0 +1,8 @@
+# Install as /etc/mosquitto/conf.d/fieldwatch.conf (root).
+# LAN + localhost; anonymous off. Password file lives on the Pi only.
+
+listener 1883 0.0.0.0
+allow_anonymous false
+password_file /etc/mosquitto/fieldwatch.passwd
+# Alternate (also fine): password_file /home/brian/fieldwatch/mosquitto/fieldwatch.passwd
+# Do not commit the passwd file or MQTT password to git.
