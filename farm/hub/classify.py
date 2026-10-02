@@ -46,7 +46,10 @@ def _name_hit(kind: str, text: str, name: str) -> bool:
 
 
 def load_catalog(path: Path | None = None) -> dict[str, Any]:
-    with (path or CATALOG).open() as f:
+    p = path or CATALOG
+    if not p.exists() or p.stat().st_size == 0:
+        return {"fleets": []}
+    with p.open() as f:
         return json.load(f)
 
 
