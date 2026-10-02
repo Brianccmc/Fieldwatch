@@ -12,7 +12,7 @@
 
 ## HUD suspicious-only pass 3 (2026-10-02)
 - Default map: trusted farm gear hidden (trail_cam, flock_camera, known_farm_node, allowlisted, tracker_near, heartbeat).
-- Visible: rogue_ap, remote_id_drone, rid_emergency, unknown_phone, visitor_wifi, tracker_separated, plus high/critical/elevated unknowns (never trusted types).
+- Visible: rogue_ap, remote_id_drone, rid_emergency, unknown_phone, visitor_wifi, tracker_separated; unknown_ble only if critical; other non-trusted unknowns if elevated/high/critical.
 - Map marker hard cap = 3 (risk_score then recency); overflow as "+N more" badge + panel list.
 - Toggle `Farm gear: OFF/ON` to reveal trusted gear; vectors + BLE noise toggles unchanged.
 - Demo cast slimmed to suspicious-only (phone, rogue AP, separated tracker, RID); seed ≤3.
