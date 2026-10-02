@@ -15,8 +15,10 @@ from typing import Any
 
 import config
 from demo import DemoSim
+from geo import load_meta, station_positions
 from mqtt_ingest import MqttIngest
 from ntfy_stub import maybe_notify
+from patterns import compute_patterns, latest_contacts
 from serial_ingest import SerialIngest
 from state import STATE
 
@@ -73,6 +75,16 @@ def handle_raw(raw: dict[str, Any]) -> None:
         "dult_mode": obs.get("dult_mode"),
         "find_hub_mode": obs.get("find_hub_mode"),
         "signature_names": obs.get("signature_names"),
+        "device_type": obs.get("device_type"),
+        "device_label": obs.get("device_label"),
+        "risk_score": obs.get("risk_score"),
+        "risk_level": obs.get("risk_level"),
+        "risk_reasons": obs.get("risk_reasons"),
+        "lat": obs.get("lat"),
+        "lon": obs.get("lon"),
+        "bearing_deg": obs.get("bearing_deg"),
+        "range_m": obs.get("range_m"),
+        "signal_strength": obs.get("signal_strength"),
     }
     STATE.touch_station(obs.get("station_id"))
     maybe_notify(obs)
@@ -103,12 +115,45 @@ def _heartbeat_loop(stop: threading.Event) -> None:
             "radio": "heartbeat",
             "rssi": 0,
             "name": "hub",
+            "device_type": "heartbeat",
         }
         try:
             handle_raw(raw)
         except Exception as e:  # noqa: BLE001
             log.exception("hub heartbeat ingest failed: %s", e)
         _broadcast({"type": "heartbeat", "status": STATE.snapshot()})
+
+
+def _row_to_hear(r) -> dict[str, Any]:
+    try:
+        doc = json.loads(r[7])
+    except Exception:
+        doc = {}
+    return {
+        "id": r[0],
+        "heard_at": r[1],
+        "station_id": r[2],
+        "radio": r[3],
+        "mac": r[4],
+        "name": r[5],
+        "rssi": r[6],
+        "alert": doc.get("alert"),
+        "alert_reason": doc.get("alert_reason"),
+        "rid_status": doc.get("rid_status"),
+        "dult_mode": doc.get("dult_mode"),
+        "find_hub_mode": doc.get("find_hub_mode"),
+        "signature_names": doc.get("signature_names"),
+        "device_type": doc.get("device_type"),
+        "device_label": doc.get("device_label"),
+        "risk_score": doc.get("risk_score"),
+        "risk_level": doc.get("risk_level"),
+        "risk_reasons": doc.get("risk_reasons"),
+        "lat": doc.get("lat"),
+        "lon": doc.get("lon"),
+        "bearing_deg": doc.get("bearing_deg"),
+        "range_m": doc.get("range_m"),
+        "signal_strength": doc.get("signal_strength"),
+    }
 
 
 def create_app():
@@ -164,6 +209,7 @@ def create_app():
     def health():
         snap = STATE.snapshot()
         ok = snap["hub_ok"]
+        meta = load_meta()
         return JSONResponse(
             {
                 "ok": ok,
@@ -174,13 +220,21 @@ def create_app():
                 "xiao": snap["xiao"]["connected"],
                 "ingest_count": snap["ingest_count"],
                 "uptime_sec": snap["uptime_sec"],
+                "map": {
+                    "address": meta.get("address"),
+                    "offline": True,
+                    "style": meta.get("style"),
+                    "geojson": meta.get("geojson"),
+                },
             },
             status_code=200 if ok else 503,
         )
 
     @app.get("/api/status")
     def api_status():
-        return STATE.snapshot()
+        snap = STATE.snapshot()
+        snap["map"] = load_meta()
+        return snap
 
     @app.get("/api/hears")
     def api_hears(limit: int = 50):
@@ -190,35 +244,34 @@ def create_app():
                 "SELECT id, heard_at, station_id, radio, mac, name, rssi, json FROM hears ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
-        out = []
-        for r in rows:
-            try:
-                doc = json.loads(r[7])
-            except Exception:
-                doc = {}
-            out.append(
-                {
-                    "id": r[0],
-                    "heard_at": r[1],
-                    "station_id": r[2],
-                    "radio": r[3],
-                    "mac": r[4],
-                    "name": r[5],
-                    "rssi": r[6],
-                    "alert": doc.get("alert"),
-                    "alert_reason": doc.get("alert_reason"),
-                    "rid_status": doc.get("rid_status"),
-                    "dult_mode": doc.get("dult_mode"),
-                    "find_hub_mode": doc.get("find_hub_mode"),
-                    "signature_names": doc.get("signature_names"),
-                }
-            )
-        return out
+        return [_row_to_hear(r) for r in rows]
 
     @app.get("/api/alerts")
     def api_alerts(limit: int = 30):
         hears = api_hears(limit=200)
         return [h for h in hears if h.get("alert")][:limit]
+
+    @app.get("/api/contacts")
+    def api_contacts(limit: int = 40):
+        limit = max(1, min(limit, 100))
+        with _db_lock:
+            return latest_contacts(_db, limit=limit)
+
+    @app.get("/api/patterns")
+    def api_patterns():
+        with _db_lock:
+            return compute_patterns(_db)
+
+    @app.get("/api/map")
+    def api_map():
+        meta = load_meta()
+        positions = station_positions()
+        return {
+            **meta,
+            "stations": [
+                {"id": sid, "lat": lat, "lon": lon} for sid, (lat, lon) in positions.items()
+            ],
+        }
 
     @app.get("/api/stations")
     def api_stations():
@@ -230,27 +283,40 @@ def create_app():
             except Exception:  # noqa: BLE001
                 registry = {}
         seen = STATE.snapshot()["stations_seen"]
+        positions = station_positions()
         stations = []
         for s in registry.get("stations") or []:
             sid = s.get("id")
-            stations.append(
-                {
-                    **{k: s.get(k) for k in ("id", "kind", "platform", "role", "radios")},
-                    "last_heard_at": seen.get(sid),
-                    "online": bool(seen.get(sid) and time.time() - seen[sid] < 120),
-                }
-            )
+            latlon = positions.get(sid)
+            row = {
+                **{k: s.get(k) for k in ("id", "kind", "platform", "role", "radios")},
+                "last_heard_at": seen.get(sid),
+                "online": bool(seen.get(sid) and time.time() - seen[sid] < 120),
+            }
+            if latlon:
+                row["lat"], row["lon"] = latlon
+            elif s.get("lat") is not None:
+                row["lat"], row["lon"] = s.get("lat"), s.get("lon")
+            stations.append(row)
         for sid, ts in seen.items():
             if not any(x["id"] == sid for x in stations):
-                stations.append(
-                    {
-                        "id": sid,
-                        "kind": "ephemeral",
-                        "last_heard_at": ts,
-                        "online": time.time() - ts < 120,
-                    }
-                )
-        return {"property": (registry.get("property") or {}).get("name"), "stations": stations}
+                latlon = positions.get(sid)
+                row = {
+                    "id": sid,
+                    "kind": "ephemeral",
+                    "last_heard_at": ts,
+                    "online": time.time() - ts < 120,
+                }
+                if latlon:
+                    row["lat"], row["lon"] = latlon
+                stations.append(row)
+        prop = registry.get("property") or {}
+        meta = load_meta()
+        return {
+            "property": prop.get("name") or "Willow Springs tract",
+            "address": meta.get("address"),
+            "stations": stations,
+        }
 
     @app.get("/api/events")
     async def api_events():

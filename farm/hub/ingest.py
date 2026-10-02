@@ -1,4 +1,4 @@
-"""House ingest: classify → SQLite → alert decision (Fieldwatch 1.1.16 policy)."""
+"""House ingest: classify → risk/geo enrich → SQLite → alert decision (Fieldwatch 1.1.16 policy)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,9 @@ from typing import Any
 
 from classify import classify, is_rotating_unmatched, load_catalog
 from dult import alert_worthy_tracker
+from geo import enrich_geometry
 from rid import plot_rule
+from risk import infer_device_type, score_risk
 
 ROOT = Path(__file__).resolve().parents[1]
 try:
@@ -22,8 +24,25 @@ except Exception:  # noqa: BLE001 — standalone ingest still works
 
 def open_db(path: Path | None = None) -> sqlite3.Connection:
     db = sqlite3.connect(path or DEFAULT_DB, check_same_thread=False)
-    db.execute("CREATE TABLE IF NOT EXISTS hears (id INTEGER PRIMARY KEY, heard_at TEXT NOT NULL, station_id TEXT NOT NULL, radio TEXT NOT NULL, mac TEXT, name TEXT, rssi INTEGER, json TEXT NOT NULL)")
-    db.execute("CREATE TABLE IF NOT EXISTS first_seen (key TEXT PRIMARY KEY, first_at TEXT NOT NULL, station_id TEXT NOT NULL)")
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS hears ("
+        "id INTEGER PRIMARY KEY, heard_at TEXT NOT NULL, station_id TEXT NOT NULL, "
+        "radio TEXT NOT NULL, mac TEXT, name TEXT, rssi INTEGER, json TEXT NOT NULL)"
+    )
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS first_seen ("
+        "key TEXT PRIMARY KEY, first_at TEXT NOT NULL, station_id TEXT NOT NULL)"
+    )
+    # Safe additive migration for map/risk HUD (existing DBs keep working).
+    cols = {r[1] for r in db.execute("PRAGMA table_info(hears)").fetchall()}
+    for col, decl in (
+        ("device_type", "TEXT"),
+        ("risk_score", "INTEGER"),
+        ("lat", "REAL"),
+        ("lon", "REAL"),
+    ):
+        if col not in cols:
+            db.execute(f"ALTER TABLE hears ADD COLUMN {col} {decl}")
     db.commit()
     return db
 
@@ -83,10 +102,38 @@ def ingest_one(raw, db=None, catalog=None, allow=None):
     key = _key(obs)
     first = own.execute("SELECT first_at FROM first_seen WHERE key=?", (key,)).fetchone() is None
     if first:
-        own.execute("INSERT INTO first_seen(key, first_at, station_id) VALUES (?,?,?)", (key, obs.get("heard_at"), obs.get("station_id")))
+        own.execute(
+            "INSERT INTO first_seen(key, first_at, station_id) VALUES (?,?,?)",
+            (key, obs.get("heard_at"), obs.get("station_id")),
+        )
+        obs["first_seen_event"] = True
     alert, reason = should_alert(obs, first, allow)
     obs["alert"], obs["alert_reason"] = alert, reason
-    own.execute("INSERT INTO hears(heard_at, station_id, radio, mac, name, rssi, json) VALUES (?,?,?,?,?,?,?)", (obs.get("heard_at"), obs.get("station_id"), obs.get("radio"), obs.get("mac"), obs.get("name"), obs.get("rssi"), json.dumps(obs)))
+
+    dtype, dlabel = infer_device_type(obs, allow)
+    obs["device_type"] = dtype
+    obs["device_label"] = obs.get("device_label") or dlabel
+    risk = score_risk(obs, device_type=dtype)
+    obs.update(risk)
+    obs = enrich_geometry(obs)
+
+    own.execute(
+        "INSERT INTO hears(heard_at, station_id, radio, mac, name, rssi, json, device_type, risk_score, lat, lon) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        (
+            obs.get("heard_at"),
+            obs.get("station_id"),
+            obs.get("radio"),
+            obs.get("mac"),
+            obs.get("name"),
+            obs.get("rssi"),
+            json.dumps(obs),
+            obs.get("device_type"),
+            obs.get("risk_score"),
+            obs.get("lat"),
+            obs.get("lon"),
+        ),
+    )
     own.commit()
     if db is None:
         own.close()

@@ -1,0 +1,9 @@
+{
+  "address": "264 County Road 1130, Willow Springs, MO",
+  "hub_lat": 37.0457191,
+  "hub_lon": -91.9502374,
+  "acres_nominal": 119,
+  "geojson": "/static/map/parcel.geojson",
+  "offline": true,
+  "style": "green_phosphor_topo"
+}
