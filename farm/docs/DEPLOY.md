@@ -13,7 +13,9 @@ LAN-only. No public MQTT. Work only under `farm/`.
 ## Install
 ```bash
 # from a machine with the tree, or git pull on Pi
-rsync -a --delete farm/ brian@192.168.4.24:/home/brian/fieldwatch/farm/
+rsync -a --delete --exclude 'catalog/fieldwatch-signatures-farm.json' farm/ brian@192.168.0.24:/home/brian/fieldwatch/farm/
+# Prefer mgmt IP 192.168.0.24 for SSH if VLAN .4 is unreachable from the iMac.
+# Catalog JSON is Pi-local (fetched by install_hub.sh); exclude it from --delete.
 ssh brian@192.168.4.24 'bash /home/brian/fieldwatch/farm/scripts/install_hub.sh'
 ```
 
