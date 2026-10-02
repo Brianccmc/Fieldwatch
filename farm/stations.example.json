@@ -4,17 +4,69 @@
     "name": "Willow Springs tract",
     "acres": 119,
     "crs": "EPSG:4326",
-    "notes": "Replace bbox and station lat/lon after the Phase 0 walk. Do not publish a filled copy."
+    "notes": "Approx public-geocode HUD positions for 264 CR 1130 Willow Springs MO. Precise survey parcel stays off-git in farm/private/. Replace after Phase 0 walk.",
+    "address": "264 County Road 1130, Willow Springs, MO"
   },
   "map": {
     "hillshade": "USGS 3DEP hillshade",
     "dem": "USGS 3DEP 1m or 10m",
-    "parcel_geojson": "local only: farm/private/parcel.geojson"
+    "parcel_geojson": "farm/hub/static/map/parcel.geojson (shipped offline HUD approx)"
   },
   "stations": [
-    {"id": "house", "kind": "mains", "platform": "android-fieldwatch", "role": "hub observer + TAK", "lat": null, "lon": null, "antenna_m": 4, "radios": ["wifi_ap", "ble_adv", "remote_id"]},
-    {"id": "gate-n", "kind": "solar", "platform": "esp32s3-sx1262", "role": "chokepoint", "lat": null, "lon": null, "antenna_m": 3, "radios": ["wifi_ap", "wifi_mgmt", "ble_adv"]},
-    {"id": "ridge-2", "kind": "solar", "platform": "esp32s3-sx1262", "role": "line of sight to road", "lat": null, "lon": null, "antenna_m": 6, "radios": ["wifi_ap", "ble_adv", "remote_id"]},
-    {"id": "pond", "kind": "solar", "platform": "esp32s3-sx1262", "role": "interior", "lat": null, "lon": null, "antenna_m": 3, "radios": ["wifi_ap", "ble_adv"]}
+    {
+      "id": "house",
+      "kind": "mains",
+      "platform": "android-fieldwatch",
+      "role": "hub observer + TAK",
+      "lat": 37.0457191,
+      "lon": -91.9502374,
+      "antenna_m": 4,
+      "radios": [
+        "wifi_ap",
+        "ble_adv",
+        "remote_id"
+      ]
+    },
+    {
+      "id": "gate-n",
+      "kind": "solar",
+      "platform": "esp32s3-sx1262",
+      "role": "chokepoint",
+      "lat": 37.04535977553,
+      "lon": -91.95563972590575,
+      "antenna_m": 3,
+      "radios": [
+        "wifi_ap",
+        "wifi_mgmt",
+        "ble_adv"
+      ]
+    },
+    {
+      "id": "ridge-2",
+      "kind": "solar",
+      "platform": "esp32s3-sx1262",
+      "role": "line of sight to road",
+      "lat": 37.048953020229966,
+      "lon": -91.94843662469809,
+      "antenna_m": 6,
+      "radios": [
+        "wifi_ap",
+        "ble_adv",
+        "remote_id"
+      ]
+    },
+    {
+      "id": "pond",
+      "kind": "solar",
+      "platform": "esp32s3-sx1262",
+      "role": "interior",
+      "lat": 37.04410213988501,
+      "lon": -91.94776133395987,
+      "antenna_m": 3,
+      "radios": [
+        "wifi_ap",
+        "ble_adv"
+      ]
+    }
   ]
 }
