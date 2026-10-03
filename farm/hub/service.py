@@ -160,7 +160,7 @@ def _row_to_hear(r) -> dict[str, Any]:
 
 
 def create_app():
-    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
     from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     import asyncio
@@ -285,14 +285,14 @@ def create_app():
         return {"enabled": on, "label": label_for(on)}
 
     @app.post("/api/quiet-hours")
-    async def api_quiet_hours_set(request: Request):
-        """Flip the Pi-local flag. Body: {"enabled": true|false}. Default remains OFF."""
+    def api_quiet_hours_set(body: dict):
+        """Flip the Pi-local flag. Body: {"enabled": true|false}. Default remains OFF.
+
+        `body` is a builtin annotation so FastAPI binds JSON even though this
+        route is nested under create_app (from __future__ import annotations).
+        """
         from quiet_hours import label_for, set_enabled
 
-        try:
-            body = await request.json()
-        except Exception:
-            body = None
         if not isinstance(body, dict) or "enabled" not in body:
             return JSONResponse({"error": "enabled required"}, status_code=400)
         on = set_enabled(bool(body.get("enabled")))
