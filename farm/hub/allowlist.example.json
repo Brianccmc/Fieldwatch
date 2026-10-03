@@ -1,8 +1,14 @@
 {
   "v": 1,
-  "notes": "Copy to allowlist.json on the Pi (off-git). Family/device MACs and SSIDs stay local.",
+  "notes": "Copy to allowlist.json on the Pi (off-git). Family/device MACs, SSIDs, and Halo collar BLE identities stay local. Values below are placeholders — not real devices.",
   "radios": [
     {"mac": "00:00:00:00:00:00", "label": "example-phone — replace"},
-    {"ssid": "ExampleHomeAP", "label": "example SSID — replace"}
+    {"ssid": "ExampleHomeAP", "label": "example SSID — replace"},
+    {
+      "mac": "A1:10:C0:11:00:01",
+      "service_uuid": "A110C011-0000-4000-8000-000000000001",
+      "device_type": "halo_collar",
+      "label": "example Halo collar — replace mac and/or service_uuid with the BLE identity once observed. uuid is an alias for service_uuid."
+    }
   ]
 }

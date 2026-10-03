@@ -11,7 +11,7 @@ from classify import classify, is_rotating_unmatched, load_catalog
 from dult import alert_worthy_tracker
 from geo import enrich_geometry
 from rid import plot_rule
-from risk import infer_device_type, score_risk
+from risk import infer_device_type, match_halo_collar, score_risk
 
 ROOT = Path(__file__).resolve().parents[1]
 try:
@@ -55,23 +55,58 @@ def _key(obs: dict[str, Any]) -> str:
     return f"anon:{obs.get('station_id')}:{obs.get('heard_at')}"
 
 
-def load_allowlist(path: Path | None = None) -> set[str]:
+class Allowlist(set):
+    """Membership set of MAC, ssid:, and uuid: keys.
+
+    halo_macs / halo_uuids are normalized identities whose entry set
+    device_type to halo_collar. A plain MAC stays a normal allowlist hit.
+    """
+
+    def __init__(self, iterable=()):
+        super().__init__(iterable)
+        self.halo_macs: set[str] = set()
+        self.halo_uuids: set[str] = set()
+
+
+def _norm_mac(mac: str | None) -> str:
+    return (mac or "").upper().replace("-", ":")
+
+
+def _norm_uuid(value: str | None) -> str:
+    return "".join(ch for ch in (value or "").upper() if ch in "0123456789ABCDEF")
+
+
+def load_allowlist(path: Path | None = None) -> Allowlist:
+    allow = Allowlist()
     p = path or ALLOWLIST
     if not p.exists():
-        return set()
+        return allow
     doc = json.loads(p.read_text())
-    keys = set()
     for row in doc.get("radios") or []:
-        if row.get("mac"):
-            keys.add(row["mac"].upper())
+        if not isinstance(row, dict):
+            continue
+        dtype = (row.get("device_type") or "").strip().lower()
+        mac = _norm_mac(row.get("mac") or "")
+        if mac:
+            allow.add(mac)
+            if dtype == "halo_collar":
+                allow.halo_macs.add(mac)
         if row.get("ssid"):
-            keys.add(f"ssid:{(row['ssid'] or '').lower()}")
-    return keys
+            allow.add(f"ssid:{(row['ssid'] or '').lower()}")
+        raw_uuid = row.get("service_uuid") or row.get("uuid") or ""
+        uuid = _norm_uuid(str(raw_uuid))
+        if uuid:
+            allow.add(f"uuid:{uuid}")
+            if dtype == "halo_collar":
+                allow.halo_uuids.add(uuid)
+    return allow
 
 
 def should_alert(obs: dict[str, Any], first: bool, allow: set[str]) -> tuple[bool, str]:
     if obs.get("radio") == "heartbeat":
         return False, "heartbeat"
+    if match_halo_collar(obs, allow):
+        return False, "halo_collar"
     if obs.get("rid_status") == "emergency":
         return True, "rid_emergency"
     if obs.get("payload_lat") is not None and obs.get("radio") == "remote_id":

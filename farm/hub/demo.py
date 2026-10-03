@@ -88,6 +88,7 @@ class DemoSim:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._i = 0
+        self._loops = 0
 
     def start(self) -> None:
         if not config.DEMO_ENABLED:
@@ -107,9 +108,14 @@ class DemoSim:
         # Seed ≤3 suspicious contacts (map cap); rotate the rest over time
         for _ in range(min(3, len(_CAST))):
             self._emit_cast()
+        self._emit_halo()
         while not self._stop.wait(config.DEMO_INTERVAL_SEC):
             self._emit_heartbeat(random.choice(DEMO_STATIONS))
             self._emit_cast()
+            self._loops += 1
+            # One quiet collar refresh — not a BLE flood, not part of the suspicious cast.
+            if self._loops % 4 == 0:
+                self._emit_halo()
 
     def _emit_heartbeat(self, station_id: str) -> None:
         raw = {
@@ -192,6 +198,26 @@ class DemoSim:
             raw["payload_lon"] = hlon + random.uniform(-0.0015, 0.0015)
 
         # Stable-ish map position for recurring cast members
+        lat, lon = estimate_contact_latlon(raw)
+        raw["lat"], raw["lon"] = lat, lon
+        STATE.demo_count += 1
+        self._on_raw(raw)
+
+    def _emit_halo(self) -> None:
+        """One known-pet demo contact. device_type is inferred (name signature / allowlist)."""
+        station = "house"
+        raw: dict[str, Any] = {
+            "v": 1,
+            "station_id": station,
+            "heard_at": _iso(),
+            "radio": "ble_adv",
+            "mode": "ble_scan",
+            "mac": "A1:10:C0:11:00:01",  # placeholder; same shape as allowlist.example.json
+            "mac_kind": "public",
+            "rssi": random.randint(-84, -74),
+            "name": "Halo collar",
+            "service_uuid": "A110C011-0000-4000-8000-000000000001",
+        }
         lat, lon = estimate_contact_latlon(raw)
         raw["lat"], raw["lon"] = lat, lon
         STATE.demo_count += 1

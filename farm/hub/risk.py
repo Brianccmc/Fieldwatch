@@ -10,6 +10,7 @@ _TYPE_BASE: dict[str, tuple[int, str]] = {
     "heartbeat": (0, "Hub heartbeat"),
     "known_farm_node": (5, "Known farm node"),
     "allowlisted": (8, "Allowlisted device"),
+    "halo_collar": (10, "Halo collar"),
     "trail_cam": (18, "Trail camera"),
     "flock_camera": (22, "Fleet camera (quiet)"),
     "tracker_near": (20, "Tracker near owner"),
@@ -23,6 +24,52 @@ _TYPE_BASE: dict[str, tuple[int, str]] = {
     "unknown": (40, "Unclassified contact"),
 }
 
+# Product phrase only. A bare "Halo" (or random BLE) is not a collar.
+_HALO_NAME = "halo collar"
+
+
+def _norm_mac(mac: str | None) -> str:
+    return (mac or "").upper().replace("-", ":")
+
+
+def _norm_uuid(value: str | None) -> str:
+    return "".join(ch for ch in (value or "").upper() if ch in "0123456789ABCDEF")
+
+
+def _ble_radio(radio: str | None) -> bool:
+    r = radio or ""
+    return r == "ble_adv" or r.startswith("ble")
+
+
+def _halo_name_hit(text: str | None) -> bool:
+    return _HALO_NAME in (text or "").lower()
+
+
+def match_halo_collar(obs: dict[str, Any], allow: Any = None) -> bool:
+    """True only for an allowlisted Halo MAC/UUID or the built-in Halo collar signature.
+
+    Unmatched random BLE is not a Halo. No cloud identity.
+    """
+    if not _ble_radio(obs.get("radio")):
+        return False
+    mac = _norm_mac(obs.get("mac"))
+    uuid = _norm_uuid(obs.get("service_uuid") or obs.get("uuid"))
+    halo_macs = getattr(allow, "halo_macs", ()) or ()
+    halo_uuids = getattr(allow, "halo_uuids", ()) or ()
+    if mac and mac in halo_macs:
+        return True
+    if uuid and uuid in halo_uuids:
+        return True
+    if _halo_name_hit(obs.get("name")):
+        return True
+    for sig in obs.get("signature_names") or []:
+        if _halo_name_hit(sig) or str(sig).strip().lower() in {"halo collar", "halo-collar"}:
+            return True
+    for sig_id in obs.get("signature_ids") or []:
+        if str(sig_id).strip().lower() in {"halo-collar", "halo_collar"}:
+            return True
+    return False
+
 
 def infer_device_type(obs: dict[str, Any], allow: set[str] | None = None) -> tuple[str, str]:
     """Return (device_type, friendly_label). Prefer explicit demo/station hints."""
@@ -34,12 +81,14 @@ def infer_device_type(obs: dict[str, Any], allow: set[str] | None = None) -> tup
 
     radio = obs.get("radio") or ""
     name = (obs.get("name") or "").strip()
-    mac = (obs.get("mac") or "").upper()
+    mac = _norm_mac(obs.get("mac"))
     ssid_key = f"ssid:{name.lower()}"
     sigs = [s.lower() for s in (obs.get("signature_names") or [])]
 
     if radio == "heartbeat":
         return "heartbeat", _TYPE_BASE["heartbeat"][1]
+    if match_halo_collar(obs, allow):
+        return "halo_collar", obs.get("device_label") or _TYPE_BASE["halo_collar"][1]
     if mac in allow or ssid_key in allow or obs.get("allowlisted"):
         return "allowlisted", name or _TYPE_BASE["allowlisted"][1]
     if obs.get("station_kind") == "farm_node" or obs.get("known_farm_node"):
@@ -116,9 +165,15 @@ def score_risk(obs: dict[str, Any], device_type: str | None = None) -> dict[str,
         score += 7
         reasons.append(f"approach corridor: {obs.get('approach_corridor')}")
 
-    # Cap and level
+    # Cap and level. Matched Halo stays low — it is a known pet, not a rogue.
     score = max(0, min(100, int(round(score))))
-    if score >= 75:
+    if dtype == "halo_collar":
+        if score > 24:
+            reasons.append("halo_collar matched — held low (known pet)")
+        score = min(score, 24)
+        level = "low"
+        reasons.append("known pet tracker (Halo collar)")
+    elif score >= 75:
         level = "critical"
     elif score >= 55:
         level = "elevated"

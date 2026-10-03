@@ -148,7 +148,7 @@ let placedLabels=[]; // [{x,y,w,h}] for de-overlap this frame
 /** Trusted / personal farm gear — hidden from map+panel by default. */
 const TRUSTED_HIDE = new Set([
   'trail_cam','flock_camera','known_farm_node','allowlisted',
-  'tracker_near','heartbeat',
+  'tracker_near','heartbeat','halo_collar',
 ]);
 /** Rogue / suspicious classes — candidates for map markers. */
 const SUSPICIOUS_TYPES = new Set([
@@ -217,7 +217,7 @@ function heardAtMs(c){
   const p=Date.parse(t); return p||0;
 }
 
-/** Trusted farm gear (barn AP, cams, known nodes, near trackers, allowlisted). */
+/** Trusted farm gear (barn AP, cams, known nodes, near trackers, allowlisted, Halo collar). */
 function isTrustedFarm(c){
   return TRUSTED_HIDE.has(dtypeOf(c));
 }
@@ -272,9 +272,12 @@ function splitContacts(rows){
   return {keep, noise, hidden};
 }
 
-/** Cap map markers to MAP_MARKER_CAP by risk_score then recency. */
+/** Cap suspicious map markers at MAP_MARKER_CAP. Farm gear (incl. halo_collar) does not consume it. */
 function selectMapMarkers(keep){
-  const withPos=(keep||[]).filter(c=>c.lat!=null&&c.lon!=null);
+  const rows=(keep||[]);
+  const suspicious=rows.filter(isSuspicious);
+  const farm=rows.filter(c=>!isSuspicious(c));
+  const withPos=suspicious.filter(c=>c.lat!=null&&c.lon!=null);
   const ranked=withPos.slice().sort((a,b)=>{
     const rs=(b.risk_score??0)-(a.risk_score??0);
     if(rs) return rs;
@@ -283,7 +286,8 @@ function selectMapMarkers(keep){
   return {
     onMap: ranked.slice(0, MAP_MARKER_CAP),
     overflow: ranked.slice(MAP_MARKER_CAP),
-    noPos: (keep||[]).filter(c=>c.lat==null||c.lon==null),
+    noPos: suspicious.filter(c=>c.lat==null||c.lon==null),
+    farmOnMap: farm.filter(c=>c.lat!=null&&c.lon!=null),
   };
 }
 
@@ -480,13 +484,19 @@ function drawMap(){
   }
 
   const {keep, noise, hidden} = splitContacts(contacts);
-  const {onMap, overflow} = selectMapMarkers(keep);
+  const {onMap, overflow, farmOnMap} = selectMapMarkers(keep);
   clusterHits=[];
   placedLabels=[];
 
   // Pass 1: capped suspicious markers only (≤ MAP_MARKER_CAP).
   const labelQueue=[];
   for(const c of onMap){
+    const want=shouldLabel(c);
+    const drawn=drawContact(ctx, hubP, c, proj, want);
+    if(drawn && want) labelQueue.push(drawn);
+  }
+  // Trusted farm gear (Farm gear ON), including Halo collar — outside the suspicious cap.
+  for(const c of (farmOnMap||[])){
     const want=shouldLabel(c);
     const drawn=drawContact(ctx, hubP, c, proj, want);
     if(drawn && want) labelQueue.push(drawn);
@@ -548,7 +558,7 @@ function drawMap(){
   const base = (mapMeta&&mapMeta.address)?`OFFLINE TOPO · ${String(mapMeta.address).slice(0,28)}`:'OFFLINE TOPO · suspicious-only';
   const vec = showVectors ? 'vectors ON' : 'vectors OFF';
   const farm = showFarmGear ? 'farm ON' : 'farm OFF';
-  const cap = `map ${onMap.length}/${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'');
+  const cap = `map ${onMap.length}/${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'') + (showFarmGear?` · farmMk ${(farmOnMap||[]).length}`:'');
   const hideN = hidden.length;
   $('maplegend').textContent = showBleNoise
     ? `${base} · ${farm} · ${vec} · ${cap} · BLE EXPANDED (${noiseN}) · hidden ${hideN}`
@@ -614,6 +624,8 @@ function onMapClick(ev){
 function renderStatus(s){
   const {keep, noise, hidden} = splitContacts(contacts);
   const {onMap, overflow} = selectMapMarkers(keep);
+  const susN = keep.filter(isSuspicious).length;
+  const farmShown = keep.filter(isTrustedFarm).length;
   $('pills').innerHTML = [
     pill('HUB', !!s.hub_ok),
     pill('MQTT', !!(s.mqtt&&s.mqtt.connected), !s.mqtt?.connected),
@@ -631,19 +643,19 @@ function renderStatus(s){
     ['XIAO JSON', x.json_count??0],
     ['Demo counts', (s.demo&&s.demo.count)||0],
     ['Map markers', `${onMap.length} / ${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'')],
-    ['Contacts', `${keep.length} suspicious · ${hidden.length} farm hidden · ${noise.length} BLE`],
+    ['Contacts', `${susN} suspicious · ${farmShown} farm shown · ${hidden.length} farm hidden · ${noise.length} BLE`],
   ].map(([k,v])=>`<span>${k}</span><b>${v}</b>`).join('');
 }
 function renderContacts(rows){
   contacts = rows||[];
   const {keep, noise, hidden} = splitContacts(contacts);
-  const {onMap, overflow} = selectMapMarkers(keep);
-  const onMapKeys = new Set(onMap.map(c=>c.mac||c.id||c.device_label));
+  const {onMap, overflow, farmOnMap} = selectMapMarkers(keep);
+  const onMapKeys = new Set([...onMap, ...(farmOnMap||[])].map(c=>c.mac||c.id||c.device_label));
   const ordered = keep.slice().sort((a,b)=>(b.risk_score??0)-(a.risk_score??0));
   let html = '';
   html += `<div class="noise-summary">Suspicious on map: <b>${onMap.length}</b>/${MAP_MARKER_CAP}` +
     (overflow.length?` · <b>+${overflow.length} more</b> in list only`:'') +
-    ` · farm gear ${showFarmGear?'ON':'OFF'} (${hidden.length} hidden)` +
+    ` · farm gear ${showFarmGear?'ON':'OFF'} (${hidden.length} hidden${showFarmGear?`, ${(farmOnMap||[]).length} on map`:''})` +
     (noise.length?` · BLE noise ${noise.length}`:'') +
     `</div>`;
   const list = showBleNoise ? ordered.concat(noise) : ordered;
