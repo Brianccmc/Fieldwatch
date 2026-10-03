@@ -30,6 +30,8 @@ HUD binds `0.0.0.0:8080` for mobile browsers on LAN.
 
 Do not commit parcel coordinates, family-device MAC allowlists, live observation logs, or MQTT passwords.
 
+Halo collar v1 is a known pet tracker (`halo_collar`): BLE MAC / service UUID on the off-git allowlist, plus a built-in `Halo collar` name signature. No Halo cloud or account API. See `docs/DEPLOY.md`.
+
 
 ## Topo HUD (offline)
 

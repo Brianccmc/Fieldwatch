@@ -91,6 +91,12 @@ def classify(obs: dict[str, Any], catalog: dict[str, Any] | None = None) -> dict
         if fleet.get("attentionNote") and fleet.get("name") not in QUIET_FLEETS:
             extra = True
             extra_fam.append(fleet.get("name"))
+    # Built-in Halo collar signature (catalog-style NAME hit). Product phrase
+    # only — bare "Halo" and unnamed random BLE do not match. Quiet: not extra attention.
+    if radio == "ble_adv" or radio.startswith("ble"):
+        if "halo collar" in name.lower() and "halo-collar" not in ids:
+            ids.append("halo-collar")
+            names.append("Halo Collar")
     out = dict(obs)
     out["signature_ids"] = ids[:8]
     out["signature_names"] = names[:8]

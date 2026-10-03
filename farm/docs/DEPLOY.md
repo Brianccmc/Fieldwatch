@@ -30,3 +30,27 @@ open http://192.168.4.24:8080/
 ```
 
 XIAO on `/dev/ttyACM0` (symlink `/dev/ttyXIAO`) may still spout Meshtastic noise — hub skips non-JSON until farm firmware NDJSON.
+
+## Halo collar allowlist (off-git)
+
+Live file: `/home/brian/fieldwatch/allowlist.json`. Do not commit it. No Halo cloud, account API, or GPS fetch — v1 is the BLE identity once observed.
+
+Placeholder shape (not a real collar) lives in `farm/hub/allowlist.example.json`. A collar entry:
+
+```json
+{
+  "mac": "A1:10:C0:11:00:01",
+  "service_uuid": "A110C011-0000-4000-8000-000000000001",
+  "device_type": "halo_collar",
+  "label": "example — replace"
+}
+```
+
+Fields:
+
+- `mac` — observed BLE MAC (`AA:BB:...` or dashes; case-insensitive).
+- `service_uuid` — observed BLE service UUID (128-bit or short). `uuid` is an alias.
+- `device_type` — must be `halo_collar`. Without it, a MAC is an ordinary allowlisted radio, not a collar.
+- `label` — optional local note.
+
+Either `mac` or `service_uuid` is enough. Unmatched random BLE is not classified as Halo. A built-in quiet signature also matches BLE advertisements whose name contains `Halo collar` (not a bare `Halo`).
