@@ -22,3 +22,8 @@
 - `device_type=halo_collar` for a BLE MAC or `service_uuid` on an allowlist entry with `device_type: halo_collar`, or the built-in name signature `Halo collar`.
 - `risk_level` low when matched. Not in `SUSPICIOUS_TYPES`. Hidden with farm gear by default; Farm gear ON shows the short label "Halo collar" and does not use the suspicious 3-marker cap.
 - Demo emits one quiet collar contact (placeholder MAC/UUID only). Live allowlist stays on the Pi, off-git.
+
+## Quiet hours (2026-10-02)
+- Default OFF. Flag file `/home/brian/fieldwatch/quiet-hours.json` is operational state, not a commit.
+- Armed: low/watch unknowns are eligible for the suspicious HUD pool. Cap remains 3.
+- `quiet_hours_log` is one row per MAC per America/Chicago night. Trusted farm types are not logged as bumps.

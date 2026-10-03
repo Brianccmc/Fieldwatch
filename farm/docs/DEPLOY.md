@@ -7,6 +7,7 @@ LAN-only. No public MQTT. Work only under `farm/`.
 - Venv: `/home/brian/fieldwatch/venv/`
 - SQLite: `/home/brian/fieldwatch/data/farm.sqlite` (or `/var/lib/fieldwatch` if writable)
 - Allowlist (off-git): `/home/brian/fieldwatch/allowlist.json`
+- Quiet hours flag (off-git, default OFF): `/home/brian/fieldwatch/quiet-hours.json`
 - MQTT password env (off-git): `/home/brian/fieldwatch/mqtt.passwd.env`
 - Mosquitto passwd (off-git): `/etc/mosquitto/fieldwatch.passwd`
 
@@ -56,3 +57,15 @@ Fields:
 - `label` — optional local note.
 
 Either `mac` or `service_uuid` is enough. Unmatched random BLE is not classified as Halo. A built-in quiet signature also matches BLE advertisements whose name contains `Halo collar` (not a bare `Halo`).
+
+## Quiet hours
+
+Flag file (not in git): `/home/brian/fieldwatch/quiet-hours.json` as `{"enabled": false}`. Missing file is OFF. Restart keeps the file.
+
+```bash
+curl -s http://192.168.0.24:8080/api/quiet-hours
+curl -s -X POST http://192.168.0.24:8080/api/quiet-hours -H 'Content-Type: application/json' -d '{"enabled":true}'
+curl -s http://192.168.0.24:8080/api/quiet-hours/log
+```
+
+HUD control label is exactly `Quiet hours: OFF` / `Quiet hours: ON`. rsync `farm/` with `--exclude quiet-hours.json` so a local copy cannot be deleted or published.

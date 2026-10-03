@@ -160,7 +160,7 @@ def _row_to_hear(r) -> dict[str, Any]:
 
 
 def create_app():
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+    from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
     from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
     from fastapi.staticfiles import StaticFiles
     import asyncio
@@ -276,6 +276,35 @@ def create_app():
         """Dwell / revisit bins for the offline HUD overlay. Painting is opt-in."""
         with _db_lock:
             return compute_heatmap(_db, cell_deg=cell_deg, limit_hears=limit)
+
+    @app.get("/api/quiet-hours")
+    def api_quiet_hours():
+        from quiet_hours import enabled, label_for
+
+        on = enabled()
+        return {"enabled": on, "label": label_for(on)}
+
+    @app.post("/api/quiet-hours")
+    async def api_quiet_hours_set(request: Request):
+        """Flip the Pi-local flag. Body: {"enabled": true|false}. Default remains OFF."""
+        from quiet_hours import label_for, set_enabled
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict) or "enabled" not in body:
+            return JSONResponse({"error": "enabled required"}, status_code=400)
+        on = set_enabled(bool(body.get("enabled")))
+        return {"enabled": on, "label": label_for(on)}
+
+    @app.get("/api/quiet-hours/log")
+    def api_quiet_hours_log(night: str | None = None, limit: int = 40):
+        """Low/medium unknowns logged while quiet hours was armed. One MAC per Chicago night."""
+        from quiet_hours import list_log
+
+        with _db_lock:
+            return list_log(_db, night_key=night or None, limit=limit)
 
     @app.get("/api/map")
     def api_map():

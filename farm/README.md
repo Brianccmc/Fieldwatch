@@ -42,3 +42,9 @@ The LAN HUD renders a **green-on-black topographic overlay** of the Willow Sprin
 Unknown devices (not allowlisted, not trusted farm types such as `halo_collar`, `trail_cam`, `known_farm_node`) record **one SQLite event per MAC per America/Chicago calendar night** in `new_mac_events` (`mac`, `first_seen`, `device_type`, `lat`, `lon`, `night_key`). Suspicious types and `unknown_ble` count. The HUD lists them under **NEW TONIGHT** and does not add them to the rogue-map cap of 3.
 
 `GET /api/heatmap` returns offline dwell/revisit bins. The canvas control **Heatmap: OFF** / **Heatmap: ON** paints them; default is OFF so the sparse rogue map stays the default.
+
+## Quiet hours
+
+Default **OFF**. The live flag is Pi-local JSON (`/home/brian/fieldwatch/quiet-hours.json`, env `FIELDWATCH_QUIET_HOURS`), next to `allowlist.json`, and is not in git. The HUD toggle reads and writes it (`GET`/`POST /api/quiet-hours`) and is labeled **Quiet hours: OFF** or **Quiet hours: ON**.
+
+When armed, unknown contacts that would otherwise stay low or medium (`risk_level` low or watch) become eligible for the suspicious list. Unknown means not trusted farm gear (`halo_collar`, `trail_cam`, `flock_camera`, `known_farm_node`, `allowlisted`, `tracker_near`, `heartbeat`). Trusted gear stays hidden unless Farm gear is ON and is never reclassified as a rogue. The map cap stays **3** (highest `risk_score`, then recency). One `quiet_hours_log` row per MAC per America/Chicago night records the bump (`mac`, `night_key`, `heard_at`, `device_type`, `risk_score`, `risk_level`, `lat`, `lon`, `station_id`, `name`).
