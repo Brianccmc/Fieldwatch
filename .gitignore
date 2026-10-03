@@ -37,3 +37,6 @@ farm/hub/.venv/
 **/__pycache__/
 .env
 farm/data/
+
+# Live quiet-hours flag (Pi-local, never commit)
+quiet-hours.json

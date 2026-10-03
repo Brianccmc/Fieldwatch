@@ -13,6 +13,7 @@ WorkingDirectory=/home/brian/fieldwatch/farm/hub
 Environment=FIELDWATCH_DATA=/home/brian/fieldwatch/data
 Environment=FIELDWATCH_DB=/home/brian/fieldwatch/data/farm.sqlite
 Environment=FIELDWATCH_ALLOWLIST=/home/brian/fieldwatch/allowlist.json
+Environment=FIELDWATCH_QUIET_HOURS=/home/brian/fieldwatch/quiet-hours.json
 Environment=FIELDWATCH_MQTT_HOST=127.0.0.1
 Environment=FIELDWATCH_MQTT_USER=hub
 Environment=FIELDWATCH_MQTT_PASSWORD_FILE=/home/brian/fieldwatch/mqtt.passwd.env

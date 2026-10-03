@@ -91,6 +91,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
         <span class="pill btn" id="btnVectors" title="Show/hide hub→contact signal vector spokes">Vectors: OFF</span>
         <span class="pill btn" id="btnFarmGear" title="Show trusted farm APs/cams/nodes (hidden by default)">Farm gear: OFF</span>
         <span class="pill btn" id="btnHeatmap" title="Dwell / revisit density from SQLite history (off keeps the rogue map sparse)">Heatmap: OFF</span>
+        <span class="pill btn" id="btnQuietHours" title="Away from home: low/medium unknowns become eligible for the suspicious list (cap stays 3)">Quiet hours: OFF</span>
       </div>
       <canvas id="map" width="900" height="560" aria-label="Parcel topographic map"></canvas>
       <div class="map-legend" id="maplegend">OFFLINE TOPO · suspicious-only · ≤3 markers · vectors OFF</div>
@@ -146,6 +147,7 @@ let showBleNoise=false;
 let showVectors=false; // hub→contact spokes OFF by default (declutter)
 let showFarmGear=false; // trusted farm APs/cams/nodes OFF map by default (pass 3)
 let showHeatmap=false; // dwell/revisit overlay OFF so rogue-only map stays sparse
+let quietHours=false; // away-from-home bump OFF unless the Pi flag file says otherwise
 let heatmapBins=[];
 let heatmapMax=1;
 let newTonight={count:0,events:[],night_key:'',tz:'America/Chicago'};
@@ -236,6 +238,10 @@ function isTrustedFarm(c){
  * Trusted types stay hidden even if somehow tagged elevated/high/critical
  * (unless truly in SUSPICIOUS_TYPES, which they are not).
  */
+function isLowMedium(c){
+  const lv=riskLvl(c);
+  return lv==='low'||lv==='watch'||lv==='medium';
+}
 function isSuspicious(c){
   if(isTrustedFarm(c)) return false;
   const dt=dtypeOf(c);
@@ -243,8 +249,13 @@ function isSuspicious(c){
   // High/critical unknowns only. Transient BLE needs critical to avoid spam;
   // other non-trusted types use elevated/high/critical.
   const lvl=riskLvl(c);
-  if(NOISE_TYPES.has(dt)) return lvl==='critical';
+  if(NOISE_TYPES.has(dt)){
+    if(lvl==='critical') return true;
+    // Quiet hours bumps low/medium unknowns into the suspicious pool. Cap stays 3.
+    return quietHours && isLowMedium(c);
+  }
   if(HIGH_RISK.has(lvl)) return true;
+  if(quietHours && isLowMedium(c)) return true;
   return false;
 }
 
@@ -619,6 +630,12 @@ function syncHeatBtn(){
   btn.textContent = showHeatmap ? 'Heatmap: ON' : 'Heatmap: OFF';
   btn.classList.toggle('active', showHeatmap);
 }
+function syncQuietBtn(){
+  const btn=$('btnQuietHours');
+  if(!btn) return;
+  btn.textContent = quietHours ? 'Quiet hours: ON' : 'Quiet hours: OFF';
+  btn.classList.toggle('active', quietHours);
+}
 function toggleBleNoise(){
   showBleNoise = !showBleNoise;
   if(showBleNoise) expandedClusterId=null;
@@ -635,6 +652,22 @@ function toggleHeatmap(){
   showHeatmap = !showHeatmap;
   syncHeatBtn();
   drawMap();
+}
+async function toggleQuietHours(){
+  const next = !quietHours;
+  try{
+    const res = await fetch('/api/quiet-hours', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: next}),
+    });
+    const doc = await res.json();
+    quietHours = !!(doc && doc.enabled);
+  }catch(e){ console.warn('quiet hours', e); }
+  syncQuietBtn();
+  drawMap();
+  renderContacts(contacts);
+  try{ fetch('/api/status').then(r=>r.json()).then(renderStatus); }catch(_){}
 }
 function toggleFarmGear(){
   showFarmGear = !showFarmGear;
@@ -699,6 +732,7 @@ function renderContacts(rows){
   html += `<div class="noise-summary">Suspicious on map: <b>${onMap.length}</b>/${MAP_MARKER_CAP}` +
     (overflow.length?` · <b>+${overflow.length} more</b> in list only`:'') +
     ` · farm gear ${showFarmGear?'ON':'OFF'} (${hidden.length} hidden${showFarmGear?`, ${(farmOnMap||[]).length} on map`:''})` +
+    ` · quiet ${quietHours?'ON':'OFF'}` +
     (noise.length?` · BLE noise ${noise.length}`:'') +
     `</div>`;
   const list = showBleNoise ? ordered.concat(noise) : ordered;
@@ -776,7 +810,7 @@ async function loadMap(){
 }
 async function refresh(){
   try{
-    const [st, hears, alerts, stns, cts, pats, news, heat] = await Promise.all([
+    const [st, hears, alerts, stns, cts, pats, news, heat, qh] = await Promise.all([
       fetch('/api/status').then(r=>r.json()),
       fetch('/api/hears?limit=40').then(r=>r.json()),
       fetch('/api/alerts?limit=20').then(r=>r.json()),
@@ -785,7 +819,9 @@ async function refresh(){
       fetch('/api/patterns').then(r=>r.json()),
       fetch('/api/new-macs?limit=40').then(r=>r.json()),
       fetch('/api/heatmap').then(r=>r.json()),
+      fetch('/api/quiet-hours').then(r=>r.json()),
     ]);
+    quietHours = !!(qh && qh.enabled);
     stations = stns.stations||[];
     heatmapBins = (heat && heat.bins) || [];
     heatmapMax = (heat && heat.max_weight) || 1;
@@ -797,6 +833,7 @@ async function refresh(){
     syncVectorBtn();
     syncFarmBtn();
     syncHeatBtn();
+    syncQuietBtn();
     drawMap();
   }catch(e){ console.warn(e); }
   $('clock').textContent = new Date().toLocaleString();
@@ -805,6 +842,7 @@ $('btnBleNoise').addEventListener('click', toggleBleNoise);
 $('btnVectors').addEventListener('click', toggleVectors);
 $('btnFarmGear').addEventListener('click', toggleFarmGear);
 $('btnHeatmap').addEventListener('click', toggleHeatmap);
+$('btnQuietHours').addEventListener('click', toggleQuietHours);
 $('map').addEventListener('click', onMapClick);
 loadMap().then(refresh);
 setInterval(refresh, 5000);

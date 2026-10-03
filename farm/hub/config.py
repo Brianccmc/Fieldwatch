@@ -41,6 +41,14 @@ ALLOWLIST_PATH = Path(
 )
 ALLOWLIST_EXAMPLE = HUB_DIR / "allowlist.example.json"
 
+# Live away-from-home flag. Off-git (next to allowlist.json). Missing file = OFF.
+QUIET_HOURS_PATH = Path(
+    os.environ.get(
+        "FIELDWATCH_QUIET_HOURS",
+        str(Path.home() / "fieldwatch" / "quiet-hours.json"),
+    )
+)
+
 MQTT_HOST = os.environ.get("FIELDWATCH_MQTT_HOST", "127.0.0.1")
 MQTT_PORT = int(os.environ.get("FIELDWATCH_MQTT_PORT", "1883"))
 MQTT_USER = os.environ.get("FIELDWATCH_MQTT_USER", "hub")

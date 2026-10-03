@@ -13,6 +13,7 @@ from geo import enrich_geometry
 from rid import plot_rule
 from risk import infer_device_type, match_halo_collar, score_risk
 from geofence import ensure_schema, record_new_mac
+from quiet_hours import ensure_schema as ensure_quiet_schema, maybe_log
 
 ROOT = Path(__file__).resolve().parents[1]
 try:
@@ -45,6 +46,7 @@ def open_db(path: Path | None = None) -> sqlite3.Connection:
         if col not in cols:
             db.execute(f"ALTER TABLE hears ADD COLUMN {col} {decl}")
     ensure_schema(db)
+    ensure_quiet_schema(db)
     db.commit()
     return db
 
@@ -172,6 +174,7 @@ def ingest_one(raw, db=None, catalog=None, allow=None):
         ),
     )
     obs["new_mac_tonight"] = record_new_mac(own, obs, allow)
+    obs["quiet_hours_logged"] = maybe_log(own, obs, allow)
     own.commit()
     if db is None:
         own.close()
