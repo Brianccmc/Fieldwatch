@@ -109,6 +109,9 @@ class DemoSim:
         for _ in range(min(3, len(_CAST))):
             self._emit_cast()
         self._emit_halo()
+        # One stable unknown MAC so the geofence can be verified. Same MAC
+        # every boot — the night rule collapses repeats to a single event.
+        self._emit_new_mac_probe()
         while not self._stop.wait(config.DEMO_INTERVAL_SEC):
             self._emit_heartbeat(random.choice(DEMO_STATIONS))
             self._emit_cast()
@@ -198,6 +201,27 @@ class DemoSim:
             raw["payload_lon"] = hlon + random.uniform(-0.0015, 0.0015)
 
         # Stable-ish map position for recurring cast members
+        lat, lon = estimate_contact_latlon(raw)
+        raw["lat"], raw["lon"] = lat, lon
+        STATE.demo_count += 1
+        self._on_raw(raw)
+
+    def _emit_new_mac_probe(self) -> None:
+        """At most one new-MAC demo contact (fixed identity, not a MAC pile)."""
+        station = "gate-n"
+        raw: dict[str, Any] = {
+            "v": 1,
+            "station_id": station,
+            "heard_at": _iso(),
+            "radio": "ble_adv",
+            "mode": "ble_scan",
+            "mac": "6E:E0:0C:E0:00:01",
+            "mac_kind": "random",
+            "rssi": -88,
+            "name": "",
+            "device_type": "unknown_ble",
+            "device_label": "New BLE contact",
+        }
         lat, lon = estimate_contact_latlon(raw)
         raw["lat"], raw["lon"] = lat, lon
         STATE.demo_count += 1

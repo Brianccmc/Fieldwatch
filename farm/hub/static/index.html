@@ -90,6 +90,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
         <span class="pill btn" id="btnBleNoise" title="Expand/hide low-signal Transient BLE noise">BLE noise: OFF</span>
         <span class="pill btn" id="btnVectors" title="Show/hide hub→contact signal vector spokes">Vectors: OFF</span>
         <span class="pill btn" id="btnFarmGear" title="Show trusted farm APs/cams/nodes (hidden by default)">Farm gear: OFF</span>
+        <span class="pill btn" id="btnHeatmap" title="Dwell / revisit density from SQLite history (off keeps the rogue map sparse)">Heatmap: OFF</span>
       </div>
       <canvas id="map" width="900" height="560" aria-label="Parcel topographic map"></canvas>
       <div class="map-legend" id="maplegend">OFFLINE TOPO · suspicious-only · ≤3 markers · vectors OFF</div>
@@ -98,6 +99,10 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
       <div class="card">
         <h2>HUB / LINKS</h2>
         <div class="kv" id="hubkv"></div>
+      </div>
+      <div class="card">
+        <h2>NEW TONIGHT</h2>
+        <div class="live" id="newmacs"></div>
       </div>
       <div class="card">
         <h2>CONTACTS / RISK</h2>
@@ -130,7 +135,7 @@ body::before{content:"";position:fixed;inset:0;pointer-events:none;
     </div>
   </div>
   <div class="footer">
-    <span>REST + SSE · suspicious-only · ≤3 map markers · farm gear OFF · vectors OFF · demo ON</span>
+    <span>REST + SSE · suspicious-only · ≤3 map markers · farm gear OFF · vectors OFF · heatmap OFF · demo ON</span>
     <span id="clock"></span>
   </div>
 </div>
@@ -140,6 +145,10 @@ let mapDoc=null, mapMeta=null, stations=[], contacts=[], hub={lat:37.0457191,lon
 let showBleNoise=false;
 let showVectors=false; // hub→contact spokes OFF by default (declutter)
 let showFarmGear=false; // trusted farm APs/cams/nodes OFF map by default (pass 3)
+let showHeatmap=false; // dwell/revisit overlay OFF so rogue-only map stays sparse
+let heatmapBins=[];
+let heatmapMax=1;
+let newTonight={count:0,events:[],night_key:'',tz:'America/Chicago'};
 let expandedClusterId=null;
 let clusterHits=[]; // {id,x,y,r,members}
 let lastProj=null, lastHubP=null;
@@ -413,6 +422,23 @@ function drawClusterBadge(ctx, cl){
   return r;
 }
 
+function drawHeatmap(ctx, proj){
+  if(!showHeatmap || !heatmapBins.length) return;
+  const maxW = heatmapMax || 1;
+  for(const b of heatmapBins){
+    if(b.lat==null || b.lon==null) continue;
+    const p = proj(b.lon, b.lat);
+    const w = Math.max(0.08, Math.min(1, (b.weight||b.count||1) / maxW));
+    const r = 10 + w * 26;
+    const g = ctx.createRadialGradient(p.x, p.y, 1, p.x, p.y, r);
+    g.addColorStop(0, `rgba(61,255,154,${(0.18 + w * 0.55).toFixed(3)})`);
+    g.addColorStop(1, 'rgba(61,255,154,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
 function drawMap(){
   const canvas=$('map');
   if(!canvas) return;
@@ -464,6 +490,9 @@ function drawMap(){
       }
     }
   }
+
+  // Activity density sits on the topo, under stations and rogue markers.
+  drawHeatmap(ctx, proj);
 
   const hubP=proj(hub.lon,hub.lat);
   lastHubP=hubP;
@@ -558,11 +587,12 @@ function drawMap(){
   const base = (mapMeta&&mapMeta.address)?`OFFLINE TOPO · ${String(mapMeta.address).slice(0,28)}`:'OFFLINE TOPO · suspicious-only';
   const vec = showVectors ? 'vectors ON' : 'vectors OFF';
   const farm = showFarmGear ? 'farm ON' : 'farm OFF';
+  const heat = showHeatmap ? 'heatmap ON' : 'heatmap OFF';
   const cap = `map ${onMap.length}/${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'') + (showFarmGear?` · farmMk ${(farmOnMap||[]).length}`:'');
   const hideN = hidden.length;
   $('maplegend').textContent = showBleNoise
-    ? `${base} · ${farm} · ${vec} · ${cap} · BLE EXPANDED (${noiseN}) · hidden ${hideN}`
-    : `${base} · ${farm} · ${vec} · ${cap} · BLE×${noiseN} · hidden ${hideN}`;
+    ? `${base} · ${farm} · ${vec} · ${heat} · ${cap} · BLE EXPANDED (${noiseN}) · hidden ${hideN}`
+    : `${base} · ${farm} · ${vec} · ${heat} · ${cap} · BLE×${noiseN} · hidden ${hideN}`;
 }
 
 function syncBleBtn(){
@@ -583,6 +613,12 @@ function syncFarmBtn(){
   btn.textContent = showFarmGear ? 'Farm gear: ON' : 'Farm gear: OFF';
   btn.classList.toggle('active', showFarmGear);
 }
+function syncHeatBtn(){
+  const btn=$('btnHeatmap');
+  if(!btn) return;
+  btn.textContent = showHeatmap ? 'Heatmap: ON' : 'Heatmap: OFF';
+  btn.classList.toggle('active', showHeatmap);
+}
 function toggleBleNoise(){
   showBleNoise = !showBleNoise;
   if(showBleNoise) expandedClusterId=null;
@@ -593,6 +629,11 @@ function toggleBleNoise(){
 function toggleVectors(){
   showVectors = !showVectors;
   syncVectorBtn();
+  drawMap();
+}
+function toggleHeatmap(){
+  showHeatmap = !showHeatmap;
+  syncHeatBtn();
   drawMap();
 }
 function toggleFarmGear(){
@@ -634,6 +675,7 @@ function renderStatus(s){
     pill(`MAP ${onMap.length}`, true),
     pill(`SUS×${keep.filter(isSuspicious).length}`, keep.length>0),
     pill(`BLE×${noise.length}`, showBleNoise || !!expandedClusterId, noise.length>0 && !showBleNoise),
+    pill(`NEW×${newTonight.count||0}`, (newTonight.count||0)>0),
   ].join('');
   $('subtitle').textContent = `suspicious-only · uptime ${s.uptime_sec||0}s · ingest ${s.ingest_count||0} · alerts ${s.alert_count||0} · ${(mapMeta&&mapMeta.address)||'parcel topo'}`;
   const x=s.xiao||{}, m=s.mqtt||{};
@@ -644,6 +686,7 @@ function renderStatus(s){
     ['Demo counts', (s.demo&&s.demo.count)||0],
     ['Map markers', `${onMap.length} / ${MAP_MARKER_CAP}` + (overflow.length?` (+${overflow.length})`:'')],
     ['Contacts', `${susN} suspicious · ${farmShown} farm shown · ${hidden.length} farm hidden · ${noise.length} BLE`],
+    ['New tonight', `${newTonight.count||0} · ${newTonight.night_key||'—'}`],
   ].map(([k,v])=>`<span>${k}</span><b>${v}</b>`).join('');
 }
 function renderContacts(rows){
@@ -673,6 +716,22 @@ function renderContacts(rows){
     // already listed in ordered; summary covers +N
   }
   $('contacts').innerHTML = html;
+}
+function renderNewMacs(doc){
+  newTonight = doc || {count:0,events:[],night_key:''};
+  const events = newTonight.events || [];
+  const n = newTonight.count ?? events.length;
+  let html = `<div class="noise-summary">New tonight: <b>${n}</b> · ${newTonight.night_key||'—'} ${newTonight.tz||'America/Chicago'} · one per MAC</div>`;
+  if(!events.length){
+    html += '<span style="color:var(--muted)">no new MACs tonight</span>';
+  } else {
+    html += events.slice(0,12).map(e=>`<div class="contact">
+      <div class="title"><b>${e.mac||'—'}</b><span class="badge">${e.device_type||'unknown'}</span></div>
+      <div class="meta">${(e.first_seen||'').replace('T',' ').replace('Z','Z')} · ${e.station_id||'—'} · ${e.lat!=null?e.lat.toFixed(5):'—'}, ${e.lon!=null?e.lon.toFixed(5):'—'}</div>
+    </div>`).join('');
+  }
+  const el=$('newmacs');
+  if(el) el.innerHTML = html;
 }
 function renderPatterns(doc){
   const list=doc.contacts||[];
@@ -717,21 +776,27 @@ async function loadMap(){
 }
 async function refresh(){
   try{
-    const [st, hears, alerts, stns, cts, pats] = await Promise.all([
+    const [st, hears, alerts, stns, cts, pats, news, heat] = await Promise.all([
       fetch('/api/status').then(r=>r.json()),
       fetch('/api/hears?limit=40').then(r=>r.json()),
       fetch('/api/alerts?limit=20').then(r=>r.json()),
       fetch('/api/stations').then(r=>r.json()),
       fetch('/api/contacts?limit=40').then(r=>r.json()),
       fetch('/api/patterns').then(r=>r.json()),
+      fetch('/api/new-macs?limit=40').then(r=>r.json()),
+      fetch('/api/heatmap').then(r=>r.json()),
     ]);
     stations = stns.stations||[];
+    heatmapBins = (heat && heat.bins) || [];
+    heatmapMax = (heat && heat.max_weight) || 1;
+    renderNewMacs(news);
     renderContacts(cts);
     renderPatterns(pats);
     renderStatus(st); renderHears(hears); renderAlerts(alerts);
     syncBleBtn();
     syncVectorBtn();
     syncFarmBtn();
+    syncHeatBtn();
     drawMap();
   }catch(e){ console.warn(e); }
   $('clock').textContent = new Date().toLocaleString();
@@ -739,6 +804,7 @@ async function refresh(){
 $('btnBleNoise').addEventListener('click', toggleBleNoise);
 $('btnVectors').addEventListener('click', toggleVectors);
 $('btnFarmGear').addEventListener('click', toggleFarmGear);
+$('btnHeatmap').addEventListener('click', toggleHeatmap);
 $('map').addEventListener('click', onMapClick);
 loadMap().then(refresh);
 setInterval(refresh, 5000);

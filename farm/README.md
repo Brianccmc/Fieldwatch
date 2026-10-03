@@ -36,3 +36,9 @@ Halo collar v1 is a known pet tracker (`halo_collar`): BLE MAC / service UUID on
 ## Topo HUD (offline)
 
 The LAN HUD renders a **green-on-black topographic overlay** of the Willow Springs tract from shipped static GeoJSON (`farm/hub/static/map/parcel.geojson`) — no public tile APIs at runtime. Contacts show device type, risk score/reasons, signal vectors (bearing/RSSI), and activity patterns from SQLite history. Approx public-geocode geometry is for HUD demo; precise survey parcels stay off-git under `farm/private/`.
+
+## New-MAC geofence and activity heatmap
+
+Unknown devices (not allowlisted, not trusted farm types such as `halo_collar`, `trail_cam`, `known_farm_node`) record **one SQLite event per MAC per America/Chicago calendar night** in `new_mac_events` (`mac`, `first_seen`, `device_type`, `lat`, `lon`, `night_key`). Suspicious types and `unknown_ble` count. The HUD lists them under **NEW TONIGHT** and does not add them to the rogue-map cap of 3.
+
+`GET /api/heatmap` returns offline dwell/revisit bins. The canvas control **Heatmap: OFF** / **Heatmap: ON** paints them; default is OFF so the sparse rogue map stays the default.
