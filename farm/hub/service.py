@@ -19,6 +19,8 @@ from geo import load_meta, station_positions
 from mqtt_ingest import MqttIngest
 from ntfy_stub import maybe_notify
 from patterns import compute_patterns, latest_contacts
+from geofence import list_new_macs
+from heatmap import compute_heatmap
 from serial_ingest import SerialIngest
 from state import STATE
 
@@ -82,6 +84,7 @@ def handle_raw(raw: dict[str, Any]) -> None:
         "risk_reasons": obs.get("risk_reasons"),
         "lat": obs.get("lat"),
         "lon": obs.get("lon"),
+        "new_mac_tonight": obs.get("new_mac_tonight"),
         "bearing_deg": obs.get("bearing_deg"),
         "range_m": obs.get("range_m"),
         "signal_strength": obs.get("signal_strength"),
@@ -261,6 +264,18 @@ def create_app():
     def api_patterns():
         with _db_lock:
             return compute_patterns(_db)
+
+    @app.get("/api/new-macs")
+    def api_new_macs(night: str | None = None, limit: int = 40):
+        """Unknown / suspicious first appearance, one row per MAC per Chicago night."""
+        with _db_lock:
+            return list_new_macs(_db, night_key=night or None, limit=limit)
+
+    @app.get("/api/heatmap")
+    def api_heatmap(cell_deg: float = 0.00055, limit: int = 8000):
+        """Dwell / revisit bins for the offline HUD overlay. Painting is opt-in."""
+        with _db_lock:
+            return compute_heatmap(_db, cell_deg=cell_deg, limit_hears=limit)
 
     @app.get("/api/map")
     def api_map():

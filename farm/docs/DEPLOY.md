@@ -24,6 +24,8 @@ ssh brian@192.168.4.24 'bash /home/brian/fieldwatch/farm/scripts/install_hub.sh'
 ## Verify
 ```bash
 curl -s http://192.168.4.24:8080/health
+curl -s http://192.168.4.24:8080/api/new-macs
+curl -s http://192.168.4.24:8080/api/heatmap
 systemctl is-active fieldwatch-hub mosquitto
 # HUD
 open http://192.168.4.24:8080/

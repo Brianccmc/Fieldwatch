@@ -12,6 +12,7 @@ from dult import alert_worthy_tracker
 from geo import enrich_geometry
 from rid import plot_rule
 from risk import infer_device_type, match_halo_collar, score_risk
+from geofence import ensure_schema, record_new_mac
 
 ROOT = Path(__file__).resolve().parents[1]
 try:
@@ -43,6 +44,7 @@ def open_db(path: Path | None = None) -> sqlite3.Connection:
     ):
         if col not in cols:
             db.execute(f"ALTER TABLE hears ADD COLUMN {col} {decl}")
+    ensure_schema(db)
     db.commit()
     return db
 
@@ -169,6 +171,7 @@ def ingest_one(raw, db=None, catalog=None, allow=None):
             obs.get("lon"),
         ),
     )
+    obs["new_mac_tonight"] = record_new_mac(own, obs, allow)
     own.commit()
     if db is None:
         own.close()
