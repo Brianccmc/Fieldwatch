@@ -69,3 +69,12 @@ curl -s http://192.168.0.24:8080/api/quiet-hours/log
 ```
 
 HUD control label is exactly `Quiet hours: OFF` / `Quiet hours: ON`. rsync `farm/` with `--exclude quiet-hours.json` so a local copy cannot be deleted or published.
+
+## Farm packets
+
+See `firmware/PROTOCOL.md`. Serial and MQTT both accept observation JSON and the gateway packet (`node_id`, lat/lon or bearing, battery mV, event). Restart the hub after deploy; do not flash the XIAO from this tree unless a safe flash path is already in use.
+
+## Phone alerts
+
+The unit does **not** set `FIELDWATCH_NTFY_URL`. Missing or blank means the hub sends no ntfy POST and does not pick a public topic. Dedup tables are created in the farm SQLite on first hear. Alerts are critical risk transitions and one new-MAC per America/Chicago night. Trusted farm types and demo rows do not page.
+

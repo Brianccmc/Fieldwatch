@@ -1,4 +1,9 @@
-"""LAN MQTT subscriber → ingest_one (station JSON per observation.schema.json)."""
+"""LAN MQTT subscriber → farm packet normalize → ingest_one.
+
+Topic default fieldwatch/station/#. Payload is either an observation
+or a gateway farm packet (node id, lat/lon or bearing, battery, event).
+Other JSON is ignored, same as Meshtastic junk on serial.
+"""
 
 from __future__ import annotations
 
@@ -88,17 +93,21 @@ class MqttIngest:
                 STATE.mqtt_error = f"disconnected rc={reason_code}"
 
             def on_message(client, userdata, msg):
+                from farm_packet import normalize_farm_packet
+
                 try:
                     raw = json.loads(msg.payload.decode("utf-8", errors="replace"))
                 except Exception:
                     log.debug("MQTT non-JSON on %s", msg.topic)
                     return
-                if not isinstance(raw, dict):
+                obs = normalize_farm_packet(raw)
+                if obs is None:
+                    log.debug("MQTT ignored non-farm payload on %s", msg.topic)
                     return
                 STATE.mqtt_last_msg_at = time.time()
                 STATE.mqtt_msg_count += 1
                 try:
-                    self._on_raw(raw)
+                    self._on_raw(obs)
                 except Exception as e:  # noqa: BLE001
                     log.exception("ingest from MQTT failed: %s", e)
 

@@ -48,3 +48,11 @@ Unknown devices (not allowlisted, not trusted farm types such as `halo_collar`, 
 Default **OFF**. The live flag is Pi-local JSON (`/home/brian/fieldwatch/quiet-hours.json`, env `FIELDWATCH_QUIET_HOURS`), next to `allowlist.json`, and is not in git. The HUD toggle reads and writes it (`GET`/`POST /api/quiet-hours`) and is labeled **Quiet hours: OFF** or **Quiet hours: ON**.
 
 When armed, unknown contacts that would otherwise stay low or medium (`risk_level` low or watch) become eligible for the suspicious list. Unknown means not trusted farm gear (`halo_collar`, `trail_cam`, `flock_camera`, `known_farm_node`, `allowlisted`, `tracker_near`, `heartbeat`). Trusted gear stays hidden unless Farm gear is ON and is never reclassified as a rogue. The map cap stays **3** (highest `risk_score`, then recency). One `quiet_hours_log` row per MAC per America/Chicago night records the bump (`mac`, `night_key`, `heard_at`, `device_type`, `risk_score`, `risk_level`, `lat`, `lon`, `station_id`, `name`).
+
+## Farm-packet ingest
+
+Serial (`/dev/ttyXIAO` or `/dev/ttyACM0`, 115200) and MQTT (`fieldwatch/station/#`) share one parser. An observation (`station_id` + `radio`, see `firmware/PROTOCOL.md`) or a gateway packet (`node_id`, lat/lon **or** bearing, `battery` millivolts, `event`) is ingested into SQLite and the HUD like any other contact. Meshtastic lines stay junk (`json_count` stays 0 until a real farm packet arrives). Demo seeding stays on until real RF is flashing; demo rows are marked `demo` and are not phone alerts. Node-only position packets are `known_farm_node` (hidden unless Farm gear is ON).
+
+## Phone alerts (ntfy only)
+
+`FIELDWATCH_NTFY_URL` empty or unset sends nothing: no default public topic, no crash. Do not put a URL in the systemd unit until a private topic exists. When set, the hub POSTs plain text only for a **critical** risk transition (into `critical`, not every repeat) and **one new MAC per America/Chicago night**. Trusted types (`trail_cam`, `flock_camera`, `known_farm_node`, `allowlisted`, `tracker_near`, `heartbeat`, `halo_collar`) do not page. Dedup is SQLite tables `phone_alerts` and `contact_risk_state`. No SMS gateway.

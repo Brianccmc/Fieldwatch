@@ -17,7 +17,7 @@ import config
 from demo import DemoSim
 from geo import load_meta, station_positions
 from mqtt_ingest import MqttIngest
-from ntfy_stub import maybe_notify
+from ntfy_stub import deliver_phone_alert, plan_phone_alert
 from patterns import compute_patterns, latest_contacts
 from geofence import list_new_macs
 from heatmap import compute_heatmap
@@ -61,6 +61,7 @@ def handle_raw(raw: dict[str, Any]) -> None:
 
     with _db_lock:
         obs = ingest_one(raw, db=_db, catalog=_catalog, allow=_allow)
+        planned = plan_phone_alert(obs, _db)
     STATE.ingest_count += 1
     if obs.get("alert"):
         STATE.alert_count += 1
@@ -90,7 +91,8 @@ def handle_raw(raw: dict[str, Any]) -> None:
         "signal_strength": obs.get("signal_strength"),
     }
     STATE.touch_station(obs.get("station_id"))
-    maybe_notify(obs)
+    if planned:
+        deliver_phone_alert(planned)
     _broadcast({"type": "obs", "obs": STATE.last_obs, "status": STATE.snapshot()})
 
 

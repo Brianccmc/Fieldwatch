@@ -131,6 +131,7 @@ class DemoSim:
             "station_solar_mv": random.randint(0, 6000),
             "name": "demo-hb",
             "device_type": "heartbeat",
+            "demo": True,
         }
         pos = station_positions().get(station_id)
         if pos:
@@ -159,6 +160,7 @@ class DemoSim:
             "name": spec["name"],
             "device_type": spec["device_type"],
             "device_label": spec["device_label"],
+            "demo": True,
         }
         if spec.get("approach_corridor"):
             raw["approach_corridor"] = spec["approach_corridor"]
@@ -221,6 +223,7 @@ class DemoSim:
             "name": "",
             "device_type": "unknown_ble",
             "device_label": "New BLE contact",
+            "demo": True,
         }
         lat, lon = estimate_contact_latlon(raw)
         raw["lat"], raw["lon"] = lat, lon
@@ -241,6 +244,7 @@ class DemoSim:
             "rssi": random.randint(-84, -74),
             "name": "Halo collar",
             "service_uuid": "A110C011-0000-4000-8000-000000000001",
+            "demo": True,
         }
         lat, lon = estimate_contact_latlon(raw)
         raw["lat"], raw["lon"] = lat, lon
@@ -268,6 +272,7 @@ class DemoSim:
             "mode": "ble_scan",
             "device_type": "unknown_ble",
             "device_label": "Transient BLE",
+            "demo": True,
         }
         STATE.demo_count += 1
         self._on_raw(raw)

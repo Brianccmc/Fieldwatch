@@ -27,3 +27,7 @@
 - Default OFF. Flag file `/home/brian/fieldwatch/quiet-hours.json` is operational state, not a commit.
 - Armed: low/watch unknowns are eligible for the suspicious HUD pool. Cap remains 3.
 - `quiet_hours_log` is one row per MAC per America/Chicago night. Trusted farm types are not logged as bumps.
+
+## Farm packet + phone alerts (2026-10-03)
+- Serial/MQTT: observation NDJSON or gateway packet (`node_id`, lat/lon or bearing, battery mV, event) → same `hears` path. Meshtastic still junk.
+- `FIELDWATCH_NTFY_URL` unset = no push. Critical transition and one new MAC per Chicago night only. Trusted types and `demo: true` do not page. Dedup in `phone_alerts`.
