@@ -1,11 +1,11 @@
 """Serial NDJSON from XIAO (/dev/ttyACM0 or /dev/ttyXIAO).
 
-Skips Meshtastic / non-JSON junk until farm firmware speaks NDJSON observations.
+Accepts farm observations and gateway farm packets (see farm_packet.py).
+Skips Meshtastic text and Meshtastic JSON.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
@@ -15,11 +15,6 @@ import config
 from state import STATE
 
 log = logging.getLogger("fieldwatch.serial")
-
-
-def _looks_like_json_obj(line: str) -> bool:
-    s = line.strip()
-    return s.startswith("{") and s.endswith("}")
 
 
 class SerialIngest:
@@ -90,20 +85,17 @@ class SerialIngest:
                 STATE.serial_connected = False
 
     def _handle_line(self, line: str) -> None:
+        from farm_packet import parse_serial_line
+
         STATE.serial_last_line_at = time.time()
-        if not _looks_like_json_obj(line):
-            STATE.serial_junk_count += 1
-            return
-        try:
-            raw = json.loads(line)
-        except json.JSONDecodeError:
-            STATE.serial_junk_count += 1
-            return
-        if not isinstance(raw, dict) or "station_id" not in raw or "radio" not in raw:
-            STATE.serial_junk_count += 1
+        obs = parse_serial_line(line)
+        if obs is None:
+            # Non-JSON, Meshtastic frames, and any object that is not a farm packet.
+            if line.strip():
+                STATE.serial_junk_count += 1
             return
         STATE.serial_json_count += 1
         try:
-            self._on_raw(raw)
+            self._on_raw(obs)
         except Exception as e:  # noqa: BLE001
             log.exception("ingest from serial failed: %s", e)

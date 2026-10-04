@@ -21,6 +21,7 @@ Environment=FIELDWATCH_DEMO=1
 Environment=FIELDWATCH_HUD_HOST=0.0.0.0
 Environment=FIELDWATCH_HUD_PORT=8080
 Environment=PYTHONUNBUFFERED=1
+# FIELDWATCH_NTFY_URL is intentionally unset. Empty or missing = no phone push.
 ExecStart=/home/brian/fieldwatch/venv/bin/python /home/brian/fieldwatch/farm/hub/service.py
 Restart=always
 RestartSec=3
